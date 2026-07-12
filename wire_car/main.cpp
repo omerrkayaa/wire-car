@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <math.h>
+#include <stdio.h>
 
 #ifdef __APPLE__
 #include <GLUT/glut.h>
@@ -12,16 +13,30 @@
 #define MAX_STEER 30.0f   /* On tekerlek max donus acisi (derece) */
 #define ROAD_LOOP 0.8f    /* Yol orta cizgisi tekrar araligi */
 
-/* Govde kaplama rengi */
+/* WireCar 1.1: secilebilir govde renkleri ve kaplama tipleri */
+typedef struct {
+    float r, g, b;
+    const char* name;
+} PaintColor;
 
-#define BODY_COLOR_R 133
-#define BODY_COLOR_G 149
-#define BODY_COLOR_B 2
+static const PaintColor paintColors[] = {
+    { 0.52f, 0.58f, 0.01f, "Zeytin Yesili" },
+    { 0.78f, 0.04f, 0.05f, "Yaris Kirmizisi" },
+    { 0.04f, 0.22f, 0.72f, "Gece Mavisi" },
+    { 0.92f, 0.92f, 0.94f, "Inci Beyazi" },
+    { 0.04f, 0.05f, 0.07f, "Karbon Siyahi" },
+    { 0.90f, 0.42f, 0.03f, "Bakir Turuncu" }
+};
 
+static const char* finishNames[] = { "Parlak", "Mat", "Metalik" };
+static int paintColorIndex = 0;
+static int paintFinishIndex = 0;
 
-#define BODY_R ((float)BODY_COLOR_R / 255.0f)
-#define BODY_G ((float)BODY_COLOR_G / 255.0f)
-#define BODY_B ((float)BODY_COLOR_B / 255.0f)
+#define PAINT_COLOR_COUNT 6
+#define PAINT_FINISH_COUNT 3
+#define BODY_R (paintColors[paintColorIndex].r)
+#define BODY_G (paintColors[paintColorIndex].g)
+#define BODY_B (paintColors[paintColorIndex].b)
 
 /* Tel cizimlerde glColor3f ile govde rengini uyguladım */
 static void setBodyColor(void)
@@ -41,6 +56,7 @@ static int keyRight = 0; /* S tusuna basili mi */
 static int cameraMode = 0;        /* Ana pencere: 0..6 ( tus 1-7 ) */
 static int subCameraMode = 0;     /* Alt pencere: 0..4 ( tus Q-T ) */
 static int solidLightEnabled = 1; /* 1=bonus (solid+isik), 0=yalnizca tel */
+static int headlightsEnabled = 1; /* F tusu ile farlar ac/kapa */
 static int showHelpPanel = 1;     /* H tusu ile ac/kapa */
 static int mainWinW = 950;
 static int mainWinH = 700;
@@ -102,12 +118,55 @@ static void setMaterial(float dr, float dg, float db,
     glMaterialf(GL_FRONT, GL_SHININESS, shininess);
 }
 
+/* Secili boya tipine gore govde malzemesini ayarlar. */
+static void setBodyMaterial(void)
+{
+    if (paintFinishIndex == 1)       /* Mat */
+        setMaterial(BODY_R, BODY_G, BODY_B, 0.08f, 0.08f, 0.08f, 6.0f, 1.0f);
+    else if (paintFinishIndex == 2)  /* Metalik */
+        setMaterial(BODY_R * 0.72f, BODY_G * 0.72f, BODY_B * 0.72f,
+            0.95f, 0.95f, 1.0f, 96.0f, 1.0f);
+    else                             /* Parlak */
+        setMaterial(BODY_R, BODY_G, BODY_B, 0.72f, 0.72f, 0.72f, 52.0f, 1.0f);
+}
+
 /* Merkez (cx,cy,cz) ve yarim boyutlarla solid kutu cizer */
 static void drawSolidBox(float cx, float cy, float cz, float hx, float hy, float hz)
 {
     glPushMatrix();
     glTranslatef(cx, cy, cz);
     glScalef(hx * 2.0f, hy * 2.0f, hz * 2.0f);
+    glutSolidCube(1.0);
+    glPopMatrix();
+}
+
+/* Iki nokta arasini tamamen dolduran, kare kesitli solid kiris cizer. */
+static void drawSolidBeam(float x0, float y0, float z0,
+    float x1, float y1, float z1, float thickness)
+{
+    float dx = x1 - x0;
+    float dy = y1 - y0;
+    float dz = z1 - z0;
+    float length = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    if (length <= 0.0001f)
+        return;
+
+    glPushMatrix();
+    glTranslatef((x0 + x1) * 0.5f, (y0 + y1) * 0.5f, (z0 + z1) * 0.5f);
+
+    /* Varsayilan Z eksenini kirisin yonune cevir. */
+    {
+        float angle = acosf(dz / length) * 180.0f / PI;
+        float axisX = -dy;
+        float axisY = dx;
+        if (fabsf(axisX) > 0.0001f || fabsf(axisY) > 0.0001f)
+            glRotatef(angle, axisX, axisY, 0.0f);
+        else if (dz < 0.0f)
+            glRotatef(180.0f, 1.0f, 0.0f, 0.0f);
+    }
+
+    glScalef(thickness, thickness, length);
     glutSolidCube(1.0);
     glPopMatrix();
 }
@@ -231,12 +290,26 @@ static void drawBody(void)
 {
     if (solidLightEnabled)
     {
-        setMaterial(BODY_R, BODY_G, BODY_B, 0.45f, 0.45f, 0.45f, 28.0f, 1.0f);
+        setBodyMaterial();
         glPushMatrix();
         glScalef(1.10f, 0.42f, 1.80f);
         glutSolidCube(1.0);
         glPopMatrix();
 
+        /* Tavan daha once yalnizca tel cizgilerden olusuyordu. Kaplama
+           modunda govdeyle ayni malzemeyi kullanan ince bir yuzey ekle. */
+        drawSolidBox(0.0f, 0.685f, -0.10f, 0.34f, 0.015f, 0.28f);
+
+        /* Kaputun tel cercevesiyle ayni sinirlarda ince kaplama. */
+        drawSolidBox(0.0f, 0.215f, 0.60f, 0.48f, 0.012f, 0.28f);
+
+        /* Direkler tel kabin cercevesinin gercek egimini birebir izler. */
+        drawSolidBeam(0.42f, 0.21f, 0.32f, 0.34f, 0.70f, 0.18f, 0.048f);
+        drawSolidBeam(-0.42f, 0.21f, 0.32f, -0.34f, 0.70f, 0.18f, 0.048f);
+        drawSolidBeam(0.42f, 0.21f, -0.50f, 0.34f, 0.70f, -0.38f, 0.048f);
+        drawSolidBeam(-0.42f, 0.21f, -0.50f, -0.34f, 0.70f, -0.38f, 0.048f);
+        drawSolidBeam(0.34f, 0.70f, 0.18f, 0.34f, 0.70f, -0.38f, 0.044f);
+        drawSolidBeam(-0.34f, 0.70f, 0.18f, -0.34f, 0.70f, -0.38f, 0.044f);
     }
 
     glDisable(GL_LIGHTING);
@@ -358,7 +431,7 @@ static void drawWindows(void)
  */
 static void drawLights(void)
 {
-    if (solidLightEnabled)
+    if (solidLightEnabled && headlightsEnabled)
     {
         setMaterial(1.0f, 0.95f, 0.2f, 1.0f, 1.0f, 0.8f, 60.0f, 1.0f);
         glPushMatrix(); glTranslatef(0.32f, 0.10f, 0.92f); drawSolidCylinder(0.075f, 0.05f, 16); glPopMatrix();
@@ -366,7 +439,8 @@ static void drawLights(void)
     }
 
     glDisable(GL_LIGHTING);
-    glColor3f(1.0f, 1.0f, 0.0f); /* On far tel rengi (sari) */
+    glColor3f(headlightsEnabled ? 1.0f : 0.35f,
+        headlightsEnabled ? 1.0f : 0.35f, 0.0f);
     glPushMatrix(); glTranslatef(0.32f, 0.10f, 0.92f); drawWireCylinder(0.075f, 0.05f, 16); glPopMatrix();
     glPushMatrix(); glTranslatef(-0.32f, 0.10f, 0.92f); drawWireCylinder(0.075f, 0.05f, 16); glPopMatrix();
 
@@ -411,7 +485,7 @@ static void drawBumpers(void)
 {
     if (solidLightEnabled)
     {
-        setMaterial(BODY_R, BODY_G, BODY_B, 0.35f, 0.35f, 0.35f, 22.0f, 1.0f);
+        setBodyMaterial();
         glPushMatrix();
         glTranslatef(0.0f, -0.28f, 0.96f);
         glScalef(1.04f, 0.12f, 0.04f);
@@ -552,7 +626,8 @@ static void drawSteeringSystem(void)
     glPushMatrix();
     glTranslatef(-0.20f, 0.22f, 0.22f);
     glRotatef(65.0f, 1.0f, 0.0f, 0.0f);
-    glRotatef(steerAngle, 0.0f, 0.0f, 1.0f);
+    /* Egik simidin gorunen donusu, tekerlek Y donusunun ters isaretidir. */
+    glRotatef(-steerAngle, 0.0f, 0.0f, 1.0f);
     if (solidLightEnabled)
     {
         setMaterial(0.85f, 0.80f, 0.10f, 0.55f, 0.55f, 0.20f, 35.0f, 1.0f);
@@ -627,6 +702,45 @@ static void setSubCamera(void)
     applyCameraPreset(&subCameras[subCameraMode]);
 }
 
+/* Kamera kurulduktan sonra iki yumusak studyo isigi ve iki far spotu ayarlanir. */
+static void configureSceneLights(void)
+{
+    GLfloat keyPosition[] = { 3.5f, 5.5f, 3.0f, 1.0f };
+    GLfloat keyDiffuse[] = { 0.92f, 0.88f, 0.82f, 1.0f };
+    GLfloat fillPosition[] = { -4.0f, 2.8f, -2.5f, 1.0f };
+    GLfloat fillDiffuse[] = { 0.32f, 0.42f, 0.58f, 1.0f };
+    GLfloat fillSpecular[] = { 0.50f, 0.58f, 0.72f, 1.0f };
+    GLfloat headColor[] = { 1.0f, 0.92f, 0.68f, 1.0f };
+    GLfloat headDirection[] = { 0.0f, -0.12f, 1.0f };
+    GLfloat leftHead[] = { -0.32f, 0.10f, 0.96f, 1.0f };
+    GLfloat rightHead[] = { 0.32f, 0.10f, 0.96f, 1.0f };
+
+    glLightfv(GL_LIGHT0, GL_POSITION, keyPosition);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, keyDiffuse);
+    glLightfv(GL_LIGHT1, GL_POSITION, fillPosition);
+    glLightfv(GL_LIGHT1, GL_DIFFUSE, fillDiffuse);
+    glLightfv(GL_LIGHT1, GL_SPECULAR, fillSpecular);
+
+    glLightfv(GL_LIGHT2, GL_POSITION, leftHead);
+    glLightfv(GL_LIGHT2, GL_DIFFUSE, headColor);
+    glLightfv(GL_LIGHT2, GL_SPOT_DIRECTION, headDirection);
+    glLightf(GL_LIGHT2, GL_SPOT_CUTOFF, 24.0f);
+    glLightf(GL_LIGHT2, GL_SPOT_EXPONENT, 18.0f);
+    glLightfv(GL_LIGHT3, GL_POSITION, rightHead);
+    glLightfv(GL_LIGHT3, GL_DIFFUSE, headColor);
+    glLightfv(GL_LIGHT3, GL_SPOT_DIRECTION, headDirection);
+    glLightf(GL_LIGHT3, GL_SPOT_CUTOFF, 24.0f);
+    glLightf(GL_LIGHT3, GL_SPOT_EXPONENT, 18.0f);
+
+    if (headlightsEnabled && solidLightEnabled) {
+        glEnable(GL_LIGHT2);
+        glEnable(GL_LIGHT3);
+    } else {
+        glDisable(GL_LIGHT2);
+        glDisable(GL_LIGHT3);
+    }
+}
+
 static void drawBitmapText(float x, float y, const char* text)
 {
     glRasterPos2f(x, y);
@@ -645,10 +759,11 @@ static void drawHelpPanel(void)
     const float panelWidth = 410.0f;
     const float boxTop = (float)mainWinH - padT;
     const float firstBase = boxTop - 13.0f;
-    const float lastBase = firstBase - 7.0f * lineStep;
+    const float lastBase = firstBase - 10.0f * lineStep;
     const float boxBottom = lastBase - padB;
     const float boxRight = padL + panelWidth;
     float y;
+    char statusText[160];
 
     if (!showHelpPanel)
         return;
@@ -688,6 +803,12 @@ static void drawHelpPanel(void)
     y -= lineStep;
     drawBitmapText(textX, y, "L veya 9 ............. Kaplama + isik");
     y -= lineStep;
+    drawBitmapText(textX, y, "C .................... Sonraki govde rengi");
+    y -= lineStep;
+    drawBitmapText(textX, y, "V .................... Kaplama tipi");
+    y -= lineStep;
+    drawBitmapText(textX, y, "F .................... Farlari ac/kapa");
+    y -= lineStep;
     drawBitmapText(textX, y, "Q W E R T ............ Alt pencere kamera");
     y -= lineStep;
     drawBitmapText(textX, y, "Sag tik .............. Kamera menusu");
@@ -697,6 +818,11 @@ static void drawHelpPanel(void)
 
     glColor3f(0.55f, 0.75f, 0.55f);
     drawBitmapText(textX, y, solidLightEnabled ? "Mod: Kaplama + isik ACIK" : "Mod: Tel (isik kapali)");
+    y -= lineStep;
+    snprintf(statusText, sizeof(statusText), "Boya: %s | Yuzey: %s | Far: %s",
+        paintColors[paintColorIndex].name, finishNames[paintFinishIndex],
+        headlightsEnabled ? "ACIK" : "KAPALI");
+    drawBitmapText(textX, y, statusText);
 
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
@@ -724,6 +850,7 @@ void displayMain(void)
     glLoadIdentity();
 
     setCamera();
+    configureSceneLights();
     drawRoad();
     drawCar();
     drawHelpPanel();
@@ -740,6 +867,7 @@ void displaySub(void)
     glLoadIdentity();
 
     setSubCamera();
+    configureSceneLights();
 
     drawRoad();
     drawCar();
@@ -747,25 +875,61 @@ void displaySub(void)
     glutSwapBuffers();
 }
 
-/* Sag tik menu secimi: kamera degistir veya cik */
+/* Sag tik ana menu ve alt menuler */
 void menuSelect(int option)
 {
-    if (option >= 0 && option < MAIN_CAMERA_COUNT)
-        cameraMode = option;
-    else if (option == MAIN_CAMERA_COUNT)
+    if (option >= 100 && option < 100 + MAIN_CAMERA_COUNT)
+        cameraMode = option - 100;
+    else if (option == 300)
+        headlightsEnabled = !headlightsEnabled;
+    else if (option == 301)
+        solidLightEnabled = !solidLightEnabled;
+    else if (option == 999)
         exit(0);
 
+    requestRedrawBoth();
+}
+
+void colorMenuSelect(int option)
+{
+    if (option >= 0 && option < PAINT_COLOR_COUNT)
+        paintColorIndex = option;
+    requestRedrawBoth();
+}
+
+void finishMenuSelect(int option)
+{
+    if (option >= 0 && option < PAINT_FINISH_COUNT)
+        paintFinishIndex = option;
     requestRedrawBoth();
 }
 
 void createMenu(void)
 {
     int i;
+    int cameraMenu;
+    int colorMenu;
+    int finishMenu;
+
+    cameraMenu = glutCreateMenu(menuSelect);
+    for (i = 0; i < MAIN_CAMERA_COUNT; i++)
+        glutAddMenuEntry(mainCameras[i].label, 100 + i);
+
+    colorMenu = glutCreateMenu(colorMenuSelect);
+    for (i = 0; i < PAINT_COLOR_COUNT; i++)
+        glutAddMenuEntry(paintColors[i].name, i);
+
+    finishMenu = glutCreateMenu(finishMenuSelect);
+    for (i = 0; i < PAINT_FINISH_COUNT; i++)
+        glutAddMenuEntry(finishNames[i], i);
 
     glutCreateMenu(menuSelect);
-    for (i = 0; i < MAIN_CAMERA_COUNT; i++)
-        glutAddMenuEntry(mainCameras[i].label, i);
-    glutAddMenuEntry("Cikis", MAIN_CAMERA_COUNT);
+    glutAddSubMenu("Kamera Secimi", cameraMenu);
+    glutAddSubMenu("Govde Rengi", colorMenu);
+    glutAddSubMenu("Kaplama Tipi", finishMenu);
+    glutAddMenuEntry("Farlari Ac / Kapat", 300);
+    glutAddMenuEntry("Tel / Kaplama Modu", 301);
+    glutAddMenuEntry("Cikis", 999);
     glutAttachMenu(GLUT_RIGHT_BUTTON);
 }
 
@@ -822,6 +986,24 @@ void keyDown(unsigned char key, int x, int y)
     if (key == '9' || key == 'l' || key == 'L')
     {
         toggleSolidLight();
+    }
+
+    if (key == 'c' || key == 'C')
+    {
+        paintColorIndex = (paintColorIndex + 1) % PAINT_COLOR_COUNT;
+        requestRedrawBoth();
+    }
+
+    if (key == 'v' || key == 'V')
+    {
+        paintFinishIndex = (paintFinishIndex + 1) % PAINT_FINISH_COUNT;
+        requestRedrawBoth();
+    }
+
+    if (key == 'f' || key == 'F')
+    {
+        headlightsEnabled = !headlightsEnabled;
+        requestRedrawBoth();
     }
 
     if (key == 'h' || key == 'H')
@@ -959,6 +1141,7 @@ void initShared(void)
     glEnable(GL_NORMALIZE);
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
+    glEnable(GL_LIGHT1);
 
     GLfloat lightPosition[] = { 3.0f, 5.0f, -4.0f, 1.0f };
     GLfloat lightAmbient[] = { 0.22f, 0.22f, 0.22f, 1.0f };
@@ -981,7 +1164,7 @@ int main(int argc, char** argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(950, 700);
 
-    mainWindow = glutCreateWindow("TelAraba [H panel | ok/A-S direksiyon | L isik]");
+    mainWindow = glutCreateWindow("WireCar 1.1 [C renk | V kaplama | F far | H panel]");
     initShared();
     glutDisplayFunc(displayMain);
     glutReshapeFunc(reshapeMain);

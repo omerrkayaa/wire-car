@@ -3,14 +3,14 @@
 **Subtitle:** Computer Graphics Project Report — Mandatory Primitives, Hybrid Shading, and Dual-Viewport Interaction
 
 **Author:** Ömer Kaya  
-**Date:** June 2026 (version 1.0)  
+**Date:** July 2026 (version 1.1; first version June 2026)  
 **Repository:** WireCar (`wire_car/main.cpp`, `Makefile`, `figures/`)
 
 ---
 
 ## Abstract
 
-This report documents *Tel Araba* (WireCar), an interactive three-dimensional car model written in C-style C++ with the OpenGL fixed-function pipeline and GLUT. The mandatory geometry is built from `glutWireCube` for the chassis, `glutWireTorus` for the wheels and the steering wheel, and line segments for the axles, driveshafts and steering linkage. On top of the wire model the program adds solid surfaces with material properties, semi-transparent cabin glass, a second preview sub-window with five camera presets, seven main-window cameras, keyboard and menu control, and continuous animation of wheel rotation, road markings and the steerable front wheels. The car sits near the world origin with **Z** as forward/backward and **Y** as vertical, which keeps camera placement and the drivetrain layout simple. Sixteen screenshots show both rendering modes from several angles.
+This report documents *Tel Araba* (WireCar), an interactive three-dimensional car model written in C-style C++ with the OpenGL fixed-function pipeline and GLUT. The mandatory geometry is built from `glutWireCube` for the chassis, `glutWireTorus` for the wheels and the steering wheel, and line segments for the axles, driveshafts and steering linkage. On top of the wire model the program adds solid surfaces with material properties, semi-transparent cabin glass, a second preview sub-window with five camera presets, seven main-window cameras, keyboard and menu control, and continuous animation of wheel rotation, road markings and the steerable front wheels. Version 1.1 adds six selectable body colours, three paint finishes (gloss, matte, metallic), a two-light studio setup and two switchable headlight spotlights. The car sits near the world origin with **Z** as forward/backward and **Y** as vertical, which keeps camera placement and the drivetrain layout simple. Sixteen screenshots show both rendering modes from several angles.
 
 ---
 
@@ -84,15 +84,16 @@ Each display callback:
 
 1. Clears the colour and depth buffers.
 2. Loads the model-view matrix and applies the active camera preset (`gluLookAt`).
-3. Draws the road (always wire, lighting off).
-4. Draws the car in a fixed order (body, lights, bumpers, 4×4 drivetrain, steering, wheels, and the windows last so the glass overlaps correctly).
-5. In the main window only, draws the 2D help panel in screen space.
+3. Positions the studio lights and headlights (`configureSceneLights`).
+4. Draws the road (always wire, lighting off).
+5. Draws the car in a fixed order (body, lights, bumpers, 4×4 drivetrain, steering, wheels, and the windows last so the glass overlaps correctly).
+6. In the main window only, draws the 2D help panel in screen space.
 
 A timer runs every **16 ms** (about 60 Hz). It updates the steering angle, `wheelAngle` and `roadOffset`, then redraws **both** windows through `requestRedrawBoth()`.
 
 ### 3.5 Screenshots
 
-The figures in Section 6 were captured while running the program. The help panel is visible in some of them.
+The figures in Section 6 were captured while running the first version of the program (before the 1.1 colour, finish and headlight options were added). Geometry, cameras and the wire/solid modes are the same in 1.1, so they still show the model correctly; the default body colour (olive green) is also unchanged.
 
 ---
 
@@ -131,8 +132,9 @@ flowchart TB
 
 | Function | What it does |
 |----------|--------------|
-| `initShared` | Depth test, `GL_LIGHT0`, `GL_NORMALIZE`, quadric object |
-| `setMaterial` | Ambient, diffuse, specular and shininess for solid parts |
+| `initShared` | Depth test, `GL_LIGHT0`/`GL_LIGHT1`, `GL_NORMALIZE`, quadric object |
+| `configureSceneLights` | Key and fill light positions, headlight spotlights `GL_LIGHT2`/`GL_LIGHT3` |
+| `setMaterial` / `setBodyMaterial` | Material values; body material depends on the selected colour and finish |
 | `drawBody` | Scaled `glutWireCube` + cabin/hood lines; `glutSolidCube` in hybrid mode |
 | `drawWheel` | `glutWireTorus`, optional `glutSolidTorus`, spoke lines, steering and spin |
 | `drawSelectable4x4` | Axles, shafts, wire boxes, gear symbols |
@@ -141,6 +143,7 @@ flowchart TB
 | `drawLights` / `drawBumpers` | Headlights, taillights, bumpers (solid + wire) |
 | `drawRoad` | Road edges and moving centre dashes |
 | `drawHelpPanel` | On-screen help (main window only) |
+| `createMenu` | Right-click menu with camera, colour and finish submenus |
 | `updateSteering` | Updates `steerAngle` from the pressed keys |
 
 ### 4.3 Windows
@@ -154,7 +157,7 @@ int main(int argc, char** argv)
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(950, 700);
 
-    mainWindow = glutCreateWindow("TelAraba [H panel | ok/A-S direksiyon | L isik]");
+    mainWindow = glutCreateWindow("WireCar 1.1 [C renk | V kaplama | F far | H panel]");
     initShared();
     glutDisplayFunc(displayMain);
     // ... reshape, keyboard, menu ...
@@ -210,14 +213,22 @@ Both windows use the same keyboard callbacks, so the controls work whichever win
 | Axles & driveshaft | `drawSelectable4x4` | `GL_LINES`, `drawWireBox` |
 | Steering column & rack | `drawSteeringSystem` | `GL_LINES` |
 | Solid coating (bonus) | same functions when `solidLightEnabled` is set | `glutSolidCube`, `glutSolidTorus`, `gluCylinder` |
-| Lighting (bonus) | `initShared`, `setMaterial` | `GL_LIGHT0` |
+| Lighting (bonus) | `initShared`, `configureSceneLights`, `setMaterial` | `GL_LIGHT0`–`GL_LIGHT3` |
 | Second window (bonus) | `glutCreateSubWindow` | separate `displaySub` |
 
-### 5.2 Body and colour
+### 5.2 Body, colour and finish
 
 The chassis is a `glutWireCube` scaled by **(1.10, 0.42, 1.80)**. In hybrid mode a `glutSolidCube` with the same scale is drawn underneath.
 
-The body colour is set with `BODY_COLOR_R/G/B` at the top of the file: **(133, 149, 2)**, an olive green, converted to 0–1 floats for OpenGL. The solid body uses specular 0.45 and shininess 28. Cabin outlines, the hood and window frames are drawn with `GL_LINE_LOOP` and `GL_LINES` in `drawBody` and `drawWindows`.
+Version 1.1 replaces the fixed body colour with a `paintColors` table of six colours (olive green, racing red, night blue, pearl white, carbon black, copper orange). **C** moves to the next colour. **V** cycles through three finishes; `setBodyMaterial` changes the specular strength and shininess for each:
+
+| Finish | Specular | Shininess |
+|--------|----------|-----------|
+| Gloss | 0.72 | 52 |
+| Matte | 0.08 | 6 |
+| Metallic | 0.95 (slightly blue), base colour darkened to 72% | 96 |
+
+The same paint material is used on the body, roof, hood and bumpers. Cabin outlines, the hood and window frames are drawn with `GL_LINE_LOOP` and `GL_LINES` in `drawBody` and `drawWindows`.
 
 ### 5.3 Wheel transformations
 
@@ -269,7 +280,13 @@ static void drawCar(void)
 
 ### 5.6 Lighting
 
-`initShared` turns on depth testing and `GL_NORMALIZE` (needed because the solid parts are scaled) and places a single light, `GL_LIGHT0`, at **(3, 5, -4)** with a low ambient and strong diffuse and specular values. `setMaterial` sets the ambient term to 25% of the diffuse colour. Wire parts turn lighting off with `glDisable(GL_LIGHTING)` so that `glColor3f` sets the line colour directly.
+`initShared` turns on depth testing and `GL_NORMALIZE` (needed because the solid parts are scaled). In version 1.1 `configureSceneLights` sets up the scene after the camera is applied:
+
+- `GL_LIGHT0`: warm key light at (3.5, 5.5, 3.0)
+- `GL_LIGHT1`: cool blue fill light at (-4.0, 2.8, -2.5)
+- `GL_LIGHT2` / `GL_LIGHT3`: two headlight spotlights (cut-off 24°, pointing slightly down and forward)
+
+The headlights are only on when both the headlight option (**F**) and hybrid mode are enabled. Wire parts turn lighting off with `glDisable(GL_LIGHTING)` so that `glColor3f` sets the line colour directly.
 
 ### 5.7 Animation and steering
 
@@ -277,8 +294,8 @@ static void drawCar(void)
 
 ### 5.8 User interface
 
-- **Help panel** (`H`): lists the controls and shows the current mode.
-- **Right-click menu**: the seven main cameras and exit.
+- **Help panel** (`H`): lists the controls and shows the current mode, paint colour, finish and headlight state (*Boya / Yuzey / Far*).
+- **Right-click menu**: submenus for cameras, body colour and finish, plus headlight toggle, wire/solid toggle and exit.
 - **Wire/solid toggle** (`L` or `9`): flips `solidLightEnabled` and redraws both windows.
 
 ---
@@ -289,7 +306,7 @@ static void drawCar(void)
 
 | Mode | Flag | Appearance |
 |------|------|------------|
-| Hybrid solid + lighting | `solidLightEnabled = 1` | Olive-green filled body, shaded tyres, headlight and taillight solids, wire edges on top |
+| Hybrid solid + lighting | `solidLightEnabled = 1` | Filled body in the selected colour, shaded tyres, headlight and taillight solids, wire edges on top |
 | Wire only | `solidLightEnabled = 0` | Coloured wire body without fill; drivetrain and wheels stay visible |
 
 The help panel shows the active mode in Turkish: *Kaplama + isik ACIK* or *Tel (isik kapali)*.
@@ -370,15 +387,15 @@ Every screenshot includes the sub-window. Because `subCameraMode` is independent
 
 The required wire primitives stay visible when the solid layer is on, and wire-only mode keeps the animation and steering, so the bonus features do not replace the required geometry.
 
-Limitations: the road is flat, there is no collision or physics, the car does not actually move (only the road and wheels are animated), and the bitmap help text does not scale on high-DPI screens.
+Limitations: the road is flat, there is no collision or physics, the car does not actually move (only the road and wheels are animated), and the bitmap help text does not scale on high-DPI screens. The screenshots predate the 1.1 colour, finish and headlight options.
 
 ---
 
 ## 7. Conclusion
 
-WireCar implements an animated, steerable car with OpenGL and GLUT in a single source file. All required wire parts (body cube, torus wheels, torus steering wheel, axle and driveshaft lines) are present and can be checked in the wire-only screenshots. The bonus parts are the solid layer with lighting, transparent windows, two synchronised viewports, seven main and five sub-window cameras, and the on-screen help.
+WireCar implements an animated, steerable car with OpenGL and GLUT in a single source file. All required wire parts (body cube, torus wheels, torus steering wheel, axle and driveshaft lines) are present and can be checked in the wire-only screenshots. The bonus parts are the solid layer with lighting, transparent windows, two synchronised viewports, seven main and five sub-window cameras, and the on-screen help. Version 1.1 adds paint colours, finishes, studio lighting and headlights.
 
-Possible next steps: selectable body colours, a textured road, letting the car actually drive along the road, suspension movement, and moving to modern shader-based OpenGL while keeping the wireframe requirement.
+Possible next steps: a textured road, letting the car actually drive along the road, suspension movement, and moving to modern shader-based OpenGL while keeping the wireframe requirement.
 
 ---
 
@@ -400,8 +417,11 @@ Possible next steps: selectable body colours, a textured road, letting the car a
 | **1** – **7** | Main window camera |
 | **Q**, **W**, **E**, **R**, **T** | Sub-window camera |
 | **L** or **9** | Solid + lighting / wire only |
+| **C** | Next body colour |
+| **V** | Next paint finish (gloss, matte, metallic) |
+| **F** | Headlights on / off |
 | **H** | Show / hide help panel |
-| **Right click** | Camera menu (main cameras + exit) |
+| **Right click** | Menu: cameras, colour, finish, headlights, mode, exit |
 | **ESC** | Exit |
 
 ---
@@ -415,7 +435,7 @@ Possible next steps: selectable body colours, a textured road, letting the car a
 | `glutWireTorus` steering wheel | Done | `drawSteeringSystem`, Figures 11–12 |
 | Axle & driveshaft lines | Done | `drawSelectable4x4`, Figures 9–16 |
 | Steering column & rack | Done | `drawSteeringSystem`, Figure 12 |
-| Solid + lighting bonus | Done | Figures 1–8, `initShared` |
+| Solid + lighting bonus | Done | Figures 1–8, `initShared`, `configureSceneLights` |
 | Second viewport bonus | Done | Inset in all figures, `subWindow` |
 | Animation | Done | Timer, road offset, wheel spin |
 | Multiple cameras | Done | Keys 1–7, Q–T, menu |
