@@ -1,0 +1,36 @@
+# Visual Studio user state and caches
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Build output
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+bin/
+obj/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.recipe
+*.log
+
+# Compiled binaries and libraries
+*.exe
+*.dll
+*.lib
+*.exp
+
+# NuGet packages (restored from package configuration)
+packages/
+*.nupkg
+
+# OS files
+.DS_Store
+Thumbs.db
