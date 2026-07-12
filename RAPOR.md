@@ -1,55 +1,35 @@
-# WireCar: An Animated Wireframe Automobile in OpenGL and GLUT
+# 4x4 WireCar: A Drivable Wireframe Automobile in OpenGL and GLUT
 
-**Subtitle:** Computer Graphics Project Report — Mandatory Primitives, Hybrid Shading, and Dual-Viewport Interaction
+**Subtitle:** Computer Graphics Project Report — Wire Primitives, Hybrid Shading, Driving Model and Switchable 4×4 Drivetrain
 
 **Author:** Ömer Kaya  
-**Date:** July 2026 (version 1.1; first version June 2026)  
+**Date:** July 2026 (version 2.0; earlier versions 1.0 and 1.1 are tagged in the repository)  
 **Repository:** WireCar (`wire_car/main.cpp`, `Makefile`, `figures/`)
 
 ---
 
 ## Abstract
 
-This report documents *Tel Araba* (WireCar), an interactive three-dimensional car model written in C-style C++ with the OpenGL fixed-function pipeline and GLUT. The mandatory geometry is built from `glutWireCube` for the chassis, `glutWireTorus` for the wheels and the steering wheel, and line segments for the axles, driveshafts and steering linkage. On top of the wire model the program adds solid surfaces with material properties, semi-transparent cabin glass, a second preview sub-window with five camera presets, seven main-window cameras, keyboard and menu control, and continuous animation of wheel rotation, road markings and the steerable front wheels. Version 1.1 adds six selectable body colours, three paint finishes (gloss, matte, metallic), a two-light studio setup and two switchable headlight spotlights. The car sits near the world origin with **Z** as forward/backward and **Y** as vertical, which keeps camera placement and the drivetrain layout simple. Sixteen screenshots show both rendering modes from several angles.
+This report documents version 2.0 of *Tel Araba* (WireCar), a three-dimensional car model written in C-style C++ with the OpenGL fixed-function pipeline and GLUT. The required geometry is the same as in the earlier versions: `glutWireCube` for the chassis, `glutWireTorus` for the wheels and the steering wheel, and line segments for the axles, driveshafts and steering linkage. Solid surfaces, paint colours and finishes, studio lighting and headlights from version 1.1 are kept. The main change is that the car can now be driven: it accelerates, brakes, reverses and turns on a large ground plane, using a simple kinematic bicycle model and Ackermann steering for the front wheels. A 4×4 mode can be switched on and off; it changes the acceleration, the drivetrain colours and which gears turn. The second preview window of the earlier versions was dropped in favour of a single larger driving view with seven cameras that follow the car.
 
 ---
 
 ## 1. Introduction
 
-Wireframe modelling is a common first project in computer graphics courses because it shows scene structure, transformation hierarchies and projection without needing textures or complex shading. The assignment was to build a recognisable object from GLUT primitives, animate it, and optionally add lighting and extra views.
+In versions 1.0 and 1.1 the car stayed at the origin and only the road markings and wheels moved, so the car looked like it was driving without actually changing position. For version 2.0 the goal was to make it drivable while keeping the assignment requirements:
 
-WireCar is a car that should read as a car while still showing its mechanical parts (axles, centre differential, steering rack). The goals were:
+1. **Compliance** — keep the required GLUT wire primitives for the body, wheels and steering wheel, and the line geometry for axles and driveshafts.
+2. **Driving** — forward/backward movement with acceleration and braking, steering that depends on speed, and turning that matches the front wheel angle.
+3. **Drivetrain** — a visible difference between four-wheel drive and rear-wheel drive.
+4. **Cameras** — cameras that move with the car, including a smooth follow camera.
 
-1. **Compliance** — use the required GLUT wire primitives for the body, wheels and steering wheel; draw axles and driveshafts as lines.
-2. **Interaction** — steer the front wheels and the steering wheel together, switch cameras and toggle display options.
-3. **Presentation** — run at about 60 frames per second and document solid and wireframe modes with screenshots.
-4. **Bonus** — add solid geometry and lighting over the wire model, a second viewport and transparent windows.
-
-All code is in one file ([`wire_car/main.cpp`](wire_car/main.cpp)), built with a small [`Makefile`](Makefile) or the Visual Studio solution [`wire_car.sln`](wire_car.sln). Physics, networking and texture mapping are out of scope.
+All code is in [`wire_car/main.cpp`](wire_car/main.cpp), built with the [`Makefile`](Makefile) or the Visual Studio solution [`wire_car.sln`](wire_car.sln).
 
 ---
 
-## 2. Background
+## 2. Methodology
 
-### 2.1 Fixed-function OpenGL and GLUT
-
-The code uses classic OpenGL 1.x immediate mode: matrix stacks (`glPushMatrix` / `glPopMatrix`), `gluLookAt` for the cameras, `gluPerspective` for projection, and GLUT's built-in shapes (`glutWireCube`, `glutSolidCube`, `glutWireTorus` and others). GLUT also provides the event loop, timers, sub-windows, bitmap fonts and popup menus, so almost no platform-specific window code is needed.
-
-On macOS the source includes `<GLUT/glut.h>`; on Linux and Windows it includes `<GL/glut.h>` (FreeGLUT on Windows). The choice is made with an `#ifdef __APPLE__` block at the top of [`main.cpp`](wire_car/main.cpp).
-
-### 2.2 Wireframe versus hybrid rendering
-
-Pure wireframe rendering shows only edges and makes it easy to check that the required `glutWire*` calls are used. In hybrid mode the solid fills are drawn first with lighting enabled, then the same wire outlines are drawn on top, so the model is still clearly built from wire primitives but gains depth from shading. The `solidLightEnabled` flag switches between the two modes.
-
-### 2.3 Second viewport
-
-A small preview window, as in CAD or game editors, helps keep track of the car's orientation while the main window uses perspective cameras. The sub-window has its own `subCameraMode`, separate from the main window's `cameraMode`.
-
----
-
-## 3. Methodology
-
-### 3.1 Development tools
+### 2.1 Development tools
 
 | Component | Choice |
 |-----------|--------|
@@ -57,345 +37,177 @@ A small preview window, as in CAD or game editors, helps keep track of the car's
 | Compiler | `g++ -Wall -O2` (Makefile) or MSVC (Visual Studio solution) |
 | Graphics | OpenGL 1.x, GLU quadrics |
 | Toolkit | GLUT / FreeGLUT |
-| Math | `<math.h>` (`cosf`, `sinf`, `fabsf`) |
+| Math | `<math.h>` (`sinf`, `cosf`, `tanf`, `atanf`, `fabsf`) |
 
-### 3.2 Build and run
-
-The [`Makefile`](Makefile) supports Linux (default), macOS (`PLATFORM=mac`) and Windows MinGW (`PLATFORM=win`). On macOS:
+### 2.2 Build and run
 
 ```bash
-make PLATFORM=mac
+make                 # Linux
+make PLATFORM=mac    # macOS
+make PLATFORM=win    # Windows (MinGW + FreeGLUT)
 ./wire_car
 ```
 
-macOS builds link `-framework OpenGL -framework GLUT`; Linux builds link `-lGL -lGLU -lglut -lm`.
+### 2.3 Coordinate system
 
-### 3.3 Coordinate system and scale
+The car model is still built around **(0, 0, 0)** with **Z** forward, **Y** up and **X** left–right, so the drawing code from version 1.1 did not have to change. Driving is handled by one extra transform: `drawMovingCar` translates the whole car to `(carTravelX, 0, carTravelZ)` and rotates it by `carHeading` around **Y**.
 
-The car is centred near **(0, 0, 0)**. **Z** points to the front of the car, **Y** is up and **X** is left–right. The main constants are:
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `VEHICLE_WHEELBASE` | 1.24 | Distance between front and rear axles |
+| `VEHICLE_TRACK` | 1.24 | Distance between left and right wheels |
+| `MAX_STEER` | 30° | Steering limit at low speed |
+| `HIGH_SPEED_STEER` | 12° | Steering limit at top speed |
+| `MAX_FORWARD_SPEED` | 2.15 | Top speed forward (world units/s) |
+| `MAX_REVERSE_SPEED` | 1.05 | Top speed in reverse |
 
-- Front axle at `FRONT_AXLE_Z = 0.62`, rear axle at `REAR_AXLE_Z = -0.62`
-- Wheel lateral offset `WHEEL_X = 0.62`
-- Axle height `AXLE_Y = -0.34`
+### 2.4 Frame update
 
-### 3.4 Rendering steps per frame
-
-Each display callback:
-
-1. Clears the colour and depth buffers.
-2. Loads the model-view matrix and applies the active camera preset (`gluLookAt`).
-3. Positions the studio lights and headlights (`configureSceneLights`).
-4. Draws the road (always wire, lighting off).
-5. Draws the car in a fixed order (body, lights, bumpers, 4×4 drivetrain, steering, wheels, and the windows last so the glass overlaps correctly).
-6. In the main window only, draws the 2D help panel in screen space.
-
-A timer runs every **16 ms** (about 60 Hz). It updates the steering angle, `wheelAngle` and `roadOffset`, then redraws **both** windows through `requestRedrawBoth()`.
-
-### 3.5 Screenshots
-
-The figures in Section 6 were captured while running the first version of the program (before the 1.1 colour, finish and headlight options were added). Geometry, cameras and the wire/solid modes are the same in 1.1, so they still show the model correctly; the default body colour (olive green) is also unchanged.
+The timer still runs every 16 ms, but the movement no longer assumes a fixed frame rate. Each tick measures the elapsed time with `glutGet(GLUT_ELAPSED_TIME)` and uses it as `dt`, clamped between 1 ms and 50 ms so that the car does not jump when the window is dragged or the program is paused in a debugger.
 
 ---
 
-## 4. System Design
+## 3. Implementation
 
-### 4.1 Overall structure
+### 3.1 Speed
 
-```mermaid
-flowchart TB
-    main[main glutMainLoop]
-    timer[timer 16ms]
-    key[keyDown keyUp special]
-    dispMain[displayMain]
-    dispSub[displaySub]
-    drawCar[drawCar]
-    main --> timer
-    main --> key
-    timer --> updateSteer[updateSteering]
-    timer --> wheelAnim[wheelAngle roadOffset]
-    timer --> dispMain
-    timer --> dispSub
-    dispMain --> setCam[setCamera mainCameras]
-    dispSub --> setSubCam[setSubCamera subCameras]
-    dispMain --> drawRoad --> drawCar
-    dispSub --> drawRoad --> drawCar
-    drawCar --> body[drawBody]
-    drawCar --> lights[drawLights]
-    drawCar --> bumpers[drawBumpers]
-    drawCar --> drivetrain[drawSelectable4x4]
-    drawCar --> steer[drawSteeringSystem]
-    drawCar --> wheels[drawWheel x4]
-    drawCar --> windows[drawWindows]
-```
+`moveTowards(current, target, maxChange)` moves a value towards a target by at most `maxChange`. Speed is updated with it every tick:
 
-### 4.2 Functions
+| Situation | Change per second |
+|-----------|-------------------|
+| Accelerating, 4×4 on | +1.90 |
+| Accelerating, rear-wheel drive | +1.65 |
+| Pressing the opposite direction while moving (braking) | 3.80 towards 0 |
+| Reversing | 1.35 up to the reverse limit |
+| No key pressed (rolling resistance) | 0.82 towards 0 |
 
-| Function | What it does |
-|----------|--------------|
-| `initShared` | Depth test, `GL_LIGHT0`/`GL_LIGHT1`, `GL_NORMALIZE`, quadric object |
-| `configureSceneLights` | Key and fill light positions, headlight spotlights `GL_LIGHT2`/`GL_LIGHT3` |
-| `setMaterial` / `setBodyMaterial` | Material values; body material depends on the selected colour and finish |
-| `drawBody` | Scaled `glutWireCube` + cabin/hood lines; `glutSolidCube` in hybrid mode |
-| `drawWheel` | `glutWireTorus`, optional `glutSolidTorus`, spoke lines, steering and spin |
-| `drawSelectable4x4` | Axles, shafts, wire boxes, gear symbols |
-| `drawSteeringSystem` | Steering wheel torus, column, rack to the front axle |
-| `drawWindows` | Blended quads with blue wire frames |
-| `drawLights` / `drawBumpers` | Headlights, taillights, bumpers (solid + wire) |
-| `drawRoad` | Road edges and moving centre dashes |
-| `drawHelpPanel` | On-screen help (main window only) |
-| `createMenu` | Right-click menu with camera, colour and finish submenus |
-| `updateSteering` | Updates `steerAngle` from the pressed keys |
+### 3.2 Steering
 
-### 4.3 Windows
-
-`main()` creates the main window (950×700) and then a 240×180 sub-window, which is moved to the top-right corner when the main window is resized:
+`updateSteering(dt)` turns the wheels towards a target angle at 92°/s, and back to centre at 125°/s when the key is released. The allowed angle shrinks linearly from 30° at standstill to 12° at top speed, which keeps the car from spinning around at high speed:
 
 ```cpp
-int main(int argc, char** argv)
-{
-    glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutInitWindowSize(950, 700);
-
-    mainWindow = glutCreateWindow("WireCar 1.1 [C renk | V kaplama | F far | H panel]");
-    initShared();
-    glutDisplayFunc(displayMain);
-    // ... reshape, keyboard, menu ...
-
-    subWindow = glutCreateSubWindow(mainWindow, 680, 10, 240, 180);
-    initShared();
-    glutDisplayFunc(displaySub);
-    // ... same keyboard handlers ...
-
-    glutTimerFunc(16, timer, 0);
-    glutMainLoop();
-    return 0;
-}
+allowedSteer = MAX_STEER - (MAX_STEER - HIGH_SPEED_STEER) * speedRatio;
+targetSteer = steerInput * allowedSteer;
 ```
 
-Both windows use the same keyboard callbacks, so the controls work whichever window has focus.
+### 3.3 Ackermann front wheels
 
-### 4.4 Camera presets
-
-**Main window (keys 1–7, right-click menu):**
-
-| Index | Key | Label |
-|-------|-----|-------|
-| 0 | 1 | Perspective view |
-| 1 | 2 | Bird's-eye view |
-| 2 | 3 | Right side view |
-| 3 | 4 | Rear-left view |
-| 4 | 5 | Front view |
-| 5 | 6 | Rear view |
-| 6 | 7 | Follow camera |
-
-**Sub-window (keys Q–T):**
-
-| Index | Key | Label |
-|-------|-----|-------|
-| 0 | Q | Full top |
-| 1 | W | Front-top diagonal |
-| 2 | E | Rear-top diagonal |
-| 3 | R | Left-top side |
-| 4 | T | Close top zoom |
-
----
-
-## 5. Implementation
-
-### 5.1 Requirements
-
-| Requirement | Where | Main API |
-|-------------|-------|----------|
-| Wire body | `drawBody` | `glutWireCube` |
-| Wire wheels | `drawWheel` | `glutWireTorus` |
-| Wire steering wheel | `drawSteeringSystem` | `glutWireTorus` |
-| Axles & driveshaft | `drawSelectable4x4` | `GL_LINES`, `drawWireBox` |
-| Steering column & rack | `drawSteeringSystem` | `GL_LINES` |
-| Solid coating (bonus) | same functions when `solidLightEnabled` is set | `glutSolidCube`, `glutSolidTorus`, `gluCylinder` |
-| Lighting (bonus) | `initShared`, `configureSceneLights`, `setMaterial` | `GL_LIGHT0`–`GL_LIGHT3` |
-| Second window (bonus) | `glutCreateSubWindow` | separate `displaySub` |
-
-### 5.2 Body, colour and finish
-
-The chassis is a `glutWireCube` scaled by **(1.10, 0.42, 1.80)**. In hybrid mode a `glutSolidCube` with the same scale is drawn underneath.
-
-Version 1.1 replaces the fixed body colour with a `paintColors` table of six colours (olive green, racing red, night blue, pearl white, carbon black, copper orange). **C** moves to the next colour. **V** cycles through three finishes; `setBodyMaterial` changes the specular strength and shininess for each:
-
-| Finish | Specular | Shininess |
-|--------|----------|-----------|
-| Gloss | 0.72 | 52 |
-| Matte | 0.08 | 6 |
-| Metallic | 0.95 (slightly blue), base colour darkened to 72% | 96 |
-
-The same paint material is used on the body, roof, hood and bumpers. Cabin outlines, the hood and window frames are drawn with `GL_LINE_LOOP` and `GL_LINES` in `drawBody` and `drawWindows`.
-
-### 5.3 Wheel transformations
-
-For each wheel the code moves to the wheel position, turns the front wheels by the steering angle, rotates the torus onto a horizontal axis, then spins it around **Z** by `wheelAngle`:
+When a car turns, the inner front wheel has to turn more than the outer one because it follows a smaller circle. `getFrontWheelSteer` computes the turn radius from `steerAngle` and the wheelbase, then gives each front wheel its own angle:
 
 ```cpp
-static void drawWheel(float x, float y, float z, int frontWheel)
-{
-    glPushMatrix();
-    glTranslatef(x, y, z);
-
-    if (frontWheel)
-        glRotatef(steerAngle, 0.0f, 1.0f, 0.0f);
-
-    glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    glRotatef(wheelAngle, 0.0f, 0.0f, 1.0f);
-    // ...
+turnRadius = VEHICLE_WHEELBASE / tanf(absSteer * PI / 180.0f);
+innerAngle = atanf(VEHICLE_WHEELBASE / (turnRadius - VEHICLE_TRACK * 0.5f)) * 180.0f / PI;
+outerAngle = atanf(VEHICLE_WHEELBASE / (turnRadius + VEHICLE_TRACK * 0.5f)) * 180.0f / PI;
 ```
 
-Spoke lines are drawn after the torus so the rotation is visible in wire mode too.
+`drawWheel` now takes the steering angle of that wheel as a parameter instead of a front/rear flag.
 
-### 5.4 Drivetrain and steering
+### 3.4 Movement (kinematic bicycle model)
 
-`drawSelectable4x4` draws a simplified four-wheel-drive layout: front and rear axle lines, shafts to a centre gear, wire boxes for the differentials, and `drawWireGear` for the gear symbols. The drivetrain uses thick white lines (`glLineWidth(2.5f)`) to separate it from the body.
+The car is treated as one front and one rear wheel on the centre line. For a distance `movement = carSpeed * dt` the heading changes by
 
-The steering wheel uses the same `steerAngle` as the front wheels. Its torus is tilted 65° about **X** and rotated about **Z** by `steerAngle`. Rack lines connect the column to the ends of the front axle at **±WHEEL_X**.
-
-### 5.5 Draw order
-
-The windows are drawn last so the transparent glass appears over the body:
-
-```cpp
-static void drawCar(void)
-{
-    drawBody();
-    drawLights();
-    drawBumpers();
-    drawSelectable4x4();
-    drawSteeringSystem();
-
-    drawWheel(WHEEL_X, AXLE_Y, FRONT_AXLE_Z, 1);
-    drawWheel(-WHEEL_X, AXLE_Y, FRONT_AXLE_Z, 1);
-    drawWheel(WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0);
-    drawWheel(-WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0);
-
-    drawWindows();
-}
+```
+headingChange = movement / WHEELBASE * tan(steerAngle)
 ```
 
-### 5.6 Lighting
+and the position moves along the average of the old and new heading. When reversing `movement` is negative, so the heading change is reversed as it would be in a real car. The car is kept inside the area |X| ≤ 20, |Z| ≤ 105; if it reaches the edge its speed is set to zero.
 
-`initShared` turns on depth testing and `GL_NORMALIZE` (needed because the solid parts are scaled). In version 1.1 `configureSceneLights` sets up the scene after the camera is applied:
+The wheel spin follows the distance travelled (`360° / (2π · 0.16)` per unit, 0.16 being the tyre radius), so the wheels no longer turn when the car is standing still.
 
-- `GL_LIGHT0`: warm key light at (3.5, 5.5, 3.0)
-- `GL_LIGHT1`: cool blue fill light at (-4.0, 2.8, -2.5)
-- `GL_LIGHT2` / `GL_LIGHT3`: two headlight spotlights (cut-off 24°, pointing slightly down and forward)
+### 3.5 4×4 mode
 
-The headlights are only on when both the headlight option (**F**) and hybrid mode are enabled. Wire parts turn lighting off with `glDisable(GL_LIGHTING)` so that `glColor3f` sets the line colour directly.
+**X** toggles `fourWheelDriveEnabled`:
 
-### 5.7 Animation and steering
+| | 4×4 on | 4×4 off (rear-wheel drive) |
+|-|--------|----------------------------|
+| Front axle lines | cyan | grey |
+| Front driveshaft | drawn | not drawn |
+| Front gear | turns | stopped |
+| Transfer case | green | orange |
+| Acceleration | 1.90 | 1.65 |
 
-`updateSteering` changes `steerAngle` by 2° per frame while **A** or **S** (or the arrow keys) is held, limited to **±30°**. When the key is released the angle returns to zero by 1.5° per frame. The timer adds 3° to `wheelAngle` and moves `roadOffset` forward for the centre-line dashes. The car itself stays in place; the movement comes from the road and the wheels.
+The rear axle (orange) always turns. The help panel shows *CEKIS: 4x4 AKTIF* or *CEKIS: 4x4 PASIF*.
 
-### 5.8 User interface
+### 3.6 Ground
 
-- **Help panel** (`H`): lists the controls and shows the current mode, paint colour, finish and headlight state (*Boya / Yuzey / Far*).
-- **Right-click menu**: submenus for cameras, body colour and finish, plus headlight toggle, wire/solid toggle and exit.
-- **Wire/solid toggle** (`L` or `9`): flips `solidLightEnabled` and redraws both windows.
+The road with lane lines was replaced by a large dark ground plane (68 × 280 units) with a two-level cyan grid, posts along both sides, block silhouettes on the horizon and a few points as stars. The grid gives a sense of speed and direction without suggesting that the car has to stay in a lane.
+
+### 3.7 Cameras
+
+There is one window (950×700). The seven camera presets are the same as before, but they are now offset by the car's position so they move with it. Camera 7 is the default; it is also rotated with `carHeading` and moves towards its target by 12–16% per frame, which gives a smooth follow camera instead of one rigidly attached to the car.
+
+The sub-window of versions 1.0 and 1.1 was removed together with its camera table, display and reshape callbacks and the **Q/E/R/T/Y** keys.
+
+### 3.8 Kept from version 1.1
+
+- Six body colours (**C**) and gloss/matte/metallic finishes (**V**)
+- Key and fill lights (`GL_LIGHT0`, `GL_LIGHT1`) and two headlight spotlights (`GL_LIGHT2`, `GL_LIGHT3`, **F**)
+- Solid + lighting / wire-only toggle (**L** or **9**)
+- Right-click menu and help panel (**H**)
 
 ---
 
-## 6. Results and Discussion
+## 4. Results and Discussion
 
-### 6.1 Rendering modes
+The screenshots below were taken from version 2.0 running on Windows (MinGW-w64 + FreeGLUT). The car was first driven forward while turning left (A), so in most views it is no longer at the origin or facing straight ahead.
 
-| Mode | Flag | Appearance |
-|------|------|------------|
-| Hybrid solid + lighting | `solidLightEnabled = 1` | Filled body in the selected colour, shaded tyres, headlight and taillight solids, wire edges on top |
-| Wire only | `solidLightEnabled = 0` | Coloured wire body without fill; drivetrain and wheels stay visible |
+### 4.1 Solid + lighting
 
-The help panel shows the active mode in Turkish: *Kaplama + isik ACIK* or *Tel (isik kapali)*.
+![Figure 1: Follow camera with help panel](./figures/fig01.png)
 
-### 6.2 Two viewports
+*Figure 1: Default follow camera (7) after driving forward and turning left. The help panel shows the mode, the drive mode (4×4 on) and the paint settings.*
 
-Every screenshot includes the sub-window. Because `subCameraMode` is independent, the inset can show the top view while the main window uses a different camera.
+![Figure 2: Perspective camera](./figures/fig02.png)
 
-### 6.3 Solid + lighting (Figures 1–8)
+*Figure 2: Camera 1. The camera keeps its offset from the car, so the car stays in view after driving.*
 
-![Figure 1: Rear-left view with control panel](./figures/fig01.jpeg)
+![Figure 3: Top view while steering](./figures/fig03.png)
 
-*Figure 1: View from behind and to the side, hybrid mode, help panel visible. The sub-window shows the top view.*
+*Figure 3: Camera 2 (top) while A (left) is held. The car is no longer facing straight ahead after the earlier left turn.*
 
-![Figure 2: Rear-left perspective](./figures/fig02.jpeg)
+![Figure 4: Side view](./figures/fig04.png)
 
-*Figure 2: View from behind the other side, without the help panel. Road edges (white), red centre dashes and the cabin wire frame are visible.*
+*Figure 4: Camera 3 (side) on the grid ground plane.*
 
-![Figure 3: Front view](./figures/fig03.jpeg)
+![Figure 5: Front view with headlights](./figures/fig05.png)
 
-*Figure 3: Front view. Round headlights and blue window outlines.*
+*Figure 5: Camera 5 (front) with the headlights on. Stars are visible behind the car.*
 
-![Figure 4: Rear view](./figures/fig04.jpeg)
+![Figure 6: Racing red, metallic finish](./figures/fig06.png)
 
-*Figure 4: Rear view. Taillights and bumper.*
+*Figure 6: Follow camera after changing the colour (racing red) and the finish (metallic).*
 
-![Figure 5: Rear view variant](./figures/fig05.jpeg)
+### 4.2 Wire only and the 4×4 drivetrain
 
-*Figure 5: Higher view from behind.*
+![Figure 7: Wire perspective](./figures/fig07.png)
 
-![Figure 6: Side view](./figures/fig06.jpeg)
+*Figure 7: Wire-only mode, camera 1. 4×4 on: cyan front axle and front driveshaft, green transfer case, orange rear axle.*
 
-*Figure 6: Side view.*
+![Figure 8: Rear-wheel drive](./figures/fig08.png)
 
-![Figure 7: Top view](./figures/fig07.jpeg)
+*Figure 8: Wire-only mode, top view, 4×4 off. The front driveshaft is not drawn and the front differential box is grey.*
 
-*Figure 7: Top view (bird's-eye).*
+![Figure 9: 4x4 with help panel](./figures/fig09.png)
 
-![Figure 8: Top view variant](./figures/fig08.jpeg)
+*Figure 9: Same view with 4×4 on again. The panel shows "Mod: Tel (isik kapali)" and "CEKIS: 4x4 AKTIF".*
 
-*Figure 8: Top view, second capture.*
+![Figure 10: Ackermann steering](./figures/fig10.png)
 
-### 6.4 Wire only (Figures 9–16)
+*Figure 10: Top view while D (right) is held. The two front wheels are turned by different angles (Section 3.3).*
 
-![Figure 9: Wire perspective front-left](./figures/fig09.jpeg)
+### 4.3 Discussion
 
-*Figure 9: Wire-only mode (`L`/`9`), view from behind and to the side. `glutWireCube` body, white drivetrain and `glutWireTorus` wheels.*
+The required wire primitives are still visible in every mode, and the driving code only adds one transform around the existing car drawing, so the geometry from version 1.1 did not have to change.
 
-![Figure 10: Wire side view](./figures/fig10.jpeg)
-
-*Figure 10: Wire mode, side view. Cabin and hood lines.*
-
-![Figure 11: Wire top view](./figures/fig11.jpeg)
-
-*Figure 11: Wire mode, top view. Full 4×4 layout and the steering wheel torus.*
-
-![Figure 12: Wire top view - steering left](./figures/fig12.jpeg)
-
-*Figure 12: Wire mode, top view while steering. The front wheels are turned.*
-
-![Figure 13: Wire rear view](./figures/fig13.jpeg)
-
-*Figure 13: Wire mode, view along the length of the car.*
-
-![Figure 14: Wire rear view 2](./figures/fig14.jpeg)
-
-*Figure 14: Wire mode, view along the length of the car, second capture.*
-
-![Figure 15: Wire rear view 3](./figures/fig15.jpeg)
-
-*Figure 15: Wire mode, view along the length of the car. Axle and differential boxes are visible.*
-
-![Figure 16: Wire rear view 4](./figures/fig16.jpeg)
-
-*Figure 16: Wire mode, higher view from behind.*
-
-### 6.5 Discussion
-
-The required wire primitives stay visible when the solid layer is on, and wire-only mode keeps the animation and steering, so the bonus features do not replace the required geometry.
-
-Limitations: the road is flat, there is no collision or physics, the car does not actually move (only the road and wheels are animated), and the bitmap help text does not scale on high-DPI screens. The screenshots predate the 1.1 colour, finish and headlight options.
+Limitations: the ground is flat, there are no obstacles or collisions apart from the edge of the area, there is no suspension or tyre slip, and the far clipping plane (100 units) is shorter than the ground, so the far end of the grid is cut off.
 
 ---
 
-## 7. Conclusion
+## 5. Conclusion
 
-WireCar implements an animated, steerable car with OpenGL and GLUT in a single source file. All required wire parts (body cube, torus wheels, torus steering wheel, axle and driveshaft lines) are present and can be checked in the wire-only screenshots. The bonus parts are the solid layer with lighting, transparent windows, two synchronised viewports, seven main and five sub-window cameras, and the on-screen help. Version 1.1 adds paint colours, finishes, studio lighting and headlights.
+Version 2.0 turns WireCar from an animation into a small driving demo. The required wire primitives are unchanged, and the new parts are a time-based speed model, speed-dependent steering, Ackermann front wheels, a bicycle-model turning calculation, a switchable 4×4 drivetrain and cameras that follow the car.
 
-Possible next steps: a textured road, letting the car actually drive along the road, suspension movement, and moving to modern shader-based OpenGL while keeping the wireframe requirement.
+Possible next steps: obstacles or a track, collisions, and suspension movement.
 
 ---
 
@@ -412,30 +224,16 @@ Possible next steps: a textured road, letting the car actually drive along the r
 
 | Input | Action |
 |-------|--------|
-| **A** / **Left arrow** | Steer front wheels left (max 30°) |
-| **S** / **Right arrow** | Steer front wheels right (max 30°) |
-| **1** – **7** | Main window camera |
-| **Q**, **W**, **E**, **R**, **T** | Sub-window camera |
+| **W** / **Up arrow** | Accelerate forward / brake when reversing |
+| **S** / **Down arrow** | Brake / reverse |
+| **A** / **Left arrow** | Steer left |
+| **D** / **Right arrow** | Steer right |
+| **1** – **7** | Camera preset (7 = follow camera, default) |
+| **X** | 4×4 on / off |
 | **L** or **9** | Solid + lighting / wire only |
 | **C** | Next body colour |
-| **V** | Next paint finish (gloss, matte, metallic) |
+| **V** | Next paint finish |
 | **F** | Headlights on / off |
 | **H** | Show / hide help panel |
 | **Right click** | Menu: cameras, colour, finish, headlights, mode, exit |
 | **ESC** | Exit |
-
----
-
-## Appendix B: Requirement Checklist
-
-| Item | Status | Evidence |
-|------|--------|----------|
-| `glutWireCube` body | Done | `drawBody`, Figures 9–16 |
-| `glutWireTorus` wheels | Done | `drawWheel`, all figures |
-| `glutWireTorus` steering wheel | Done | `drawSteeringSystem`, Figures 11–12 |
-| Axle & driveshaft lines | Done | `drawSelectable4x4`, Figures 9–16 |
-| Steering column & rack | Done | `drawSteeringSystem`, Figure 12 |
-| Solid + lighting bonus | Done | Figures 1–8, `initShared`, `configureSceneLights` |
-| Second viewport bonus | Done | Inset in all figures, `subWindow` |
-| Animation | Done | Timer, road offset, wheel spin |
-| Multiple cameras | Done | Keys 1–7, Q–T, menu |

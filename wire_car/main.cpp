@@ -10,8 +10,12 @@
 
  /* --- Genel sabitler --- */
 #define PI 3.14159265f
-#define MAX_STEER 30.0f   /* On tekerlek max donus acisi (derece) */
-#define ROAD_LOOP 0.8f    /* Yol orta cizgisi tekrar araligi */
+#define MAX_STEER 30.0f   /* Dusuk hizdaki azami on tekerlek acisi */
+#define HIGH_SPEED_STEER 12.0f /* Son hizda izin verilen daha dar direksiyon acisi */
+#define MAX_FORWARD_SPEED 2.15f
+#define MAX_REVERSE_SPEED 1.05f
+#define VEHICLE_WHEELBASE 1.24f
+#define VEHICLE_TRACK 1.24f
 
 /* WireCar 1.1: secilebilir govde renkleri ve kaplama tipleri */
 typedef struct {
@@ -46,23 +50,34 @@ static void setBodyColor(void)
 
 /* --- Animasyon ve etkilesim durumu --- */
 static float wheelAngle = 0.0f;   /* Tekerlek donme acisi (timer ile artar) */
-static float roadOffset = 0.0f; /* Yol cizgilerinin kayma miktari */
 static float steerAngle = 0.0f; /* On teker + direksiyon simidi ortak acisi */
+static float drivetrainAngle = 0.0f; /* Diferansiyel/disli animasyonu */
+static float carTravelX = 0.0f;  /* Arabanin yol uzerindeki yatay konumu */
+static float carTravelZ = 0.0f;  /* Arabanin sabit yol uzerindeki konumu */
+static float carHeading = 0.0f;   /* Arabanin dunya uzayindaki yonu */
+static float carSpeed = 0.0f;     /* Ileri pozitif, geri negatif (dunya birimi/s) */
+static int lastTimerMs = 0;       /* Kare hizindan bagimsiz fizik zamanlayicisi */
+static float chaseEyeX = 0.0f;    /* Yumusak takip kamerası: goz X */
+static float chaseEyeZ = 0.0f;    /* Yumusak takip kamerası: goz Z */
+static float chaseCenterX = 0.0f; /* Yumusak takip kamerası: merkez X */
+static float chaseCenterZ = 0.0f; /* Yumusak takip kamerası: merkez Z */
+static int chaseCameraReady = 0;  /* Ilk karede takibi hedefe oturt */
 
 static int keyLeft = 0;  /* A tusuna basili mi */
-static int keyRight = 0; /* S tusuna basili mi */
+static int keyRight = 0; /* D tusuna basili mi */
+static int keyForward = 0;  /* W / yukari ok */
+static int keyBackward = 0; /* S / asagi ok */
 
 /* --- Kamera ve render modu --- */
-static int cameraMode = 0;        /* Ana pencere: 0..6 ( tus 1-7 ) */
-static int subCameraMode = 0;     /* Alt pencere: 0..4 ( tus Q-T ) */
+static int cameraMode = 6;        /* Suruste varsayilan: araci izleyen Kamera 7 */
 static int solidLightEnabled = 1; /* 1=bonus (solid+isik), 0=yalnizca tel */
 static int headlightsEnabled = 1; /* F tusu ile farlar ac/kapa */
 static int showHelpPanel = 1;     /* H tusu ile ac/kapa */
+static int fourWheelDriveEnabled = 1; /* X tusu: 1=4x4, 0=arka cekis */
 static int mainWinW = 950;
 static int mainWinH = 700;
 
 #define MAIN_CAMERA_COUNT 7
-#define SUB_CAMERA_COUNT  5
 
 /*
  * Kamera on ayari: goz konumu, bakis noktasi, yukari vektoru, menu etiketi.
@@ -83,20 +98,10 @@ static const CameraPreset mainCameras[MAIN_CAMERA_COUNT] = {
     { -5.0f,  2.0f, -4.0f,  0.0f, 0.0f, 0.0f,  0.0f, 1.0f,  0.0f, "Sol Arka Gorunus (Kamera 4)" },
     {  0.0f,  0.35f, 4.2f,  0.0f, 0.1f, 0.0f,  0.0f, 1.0f,  0.0f, "On Gorunus (Kamera 5)" },
     {  0.0f,  0.35f,-4.2f,  0.0f, 0.1f, 0.0f,  0.0f, 1.0f,  0.0f, "Arka Gorunus (Kamera 6)" },
-    {  0.0f,  1.4f, -4.0f,  0.0f, 0.25f, 0.8f, 0.0f, 1.0f,  0.0f, "Takip Kamerasi (Kamera 7)" }
-};
-
-/* Alt pencere kameralari — ana pencereden bagimsiz, tus Q-T */
-static const CameraPreset subCameras[SUB_CAMERA_COUNT] = {
-    {  0.0f, 6.5f,  0.001f, 0.0f, 0.0f,  0.0f,  0.0f, 0.0f, -1.0f, "Ustten Tam (Q)" },
-    {  0.0f, 4.5f,  3.5f,   0.0f, 0.0f,  0.3f,  0.0f, 1.0f,  0.0f, "On-Ust Capraz (W)" },
-    {  0.0f, 4.5f, -3.5f,   0.0f, 0.0f, -0.3f,  0.0f, 1.0f,  0.0f, "Arka-Ust Capraz (E)" },
-    { -4.5f, 4.0f,  0.0f,   0.0f, 0.0f,  0.0f,  0.0f, 1.0f,  0.0f, "Sol-Ust Yan (R)" },
-    {  0.0f, 3.2f,  0.001f, 0.0f, 0.0f,  0.0f,  0.0f, 0.0f, -1.0f, "Yakin Ust Zoom (T)" }
+    {  0.0f,  1.8f, -5.2f,  0.0f, 0.45f, 1.4f, 0.0f, 1.0f,  0.0f, "Takip Kamerasi (Kamera 7)" }
 };
 
 int mainWindow;
-int subWindow;   
 
 static GLUquadric* solidQuadric = NULL; /* gluCylinder icin (far govdesi) */
 
@@ -171,12 +176,10 @@ static void drawSolidBeam(float x0, float y0, float z0,
     glPopMatrix();
 }
 
-/* Ana ve alt pencereyi ayni anda yeniden cizer (senkron guncelleme) */
+/* Tek ana surus penceresini yeniden cizer. */
 static void requestRedrawBoth(void)
 {
     glutSetWindow(mainWindow);
-    glutPostRedisplay();
-    glutSetWindow(subWindow);
     glutPostRedisplay();
 }
 
@@ -222,22 +225,22 @@ static void drawWireCylinder(float radius, float height, int slices)
 /*
  * Tekerlek cizer (glutWireTorus + capraz jant cizgileri, zorunlu parca).
  *
- * frontWheel=1 ise steerAngle uygulanir (on tekerlekler A/S ile doner).
+ * wheelSteerAngle on tekerleklerde Ackermann acisini tasir; arkada sifirdir.
  *   1) glTranslatef  — tekerlegi arabanin koselerine tasir
  *   2) steer (Y)     — yalniz on tekerlerde direksiyon acisi
  *   3) yatir (Y 90)  — torus eksenini yatay konuma getirir
  *   4) spin (Z)      — wheelAngle ile donme animasyonu
  */
-static void drawWheel(float x, float y, float z, int frontWheel)
+static void drawWheel(float x, float y, float z, float wheelSteerAngle)
 {
     glPushMatrix();
     glTranslatef(x, y, z);
 
-    if (frontWheel)
-        glRotatef(steerAngle, 0.0f, 1.0f, 0.0f);
+    if (fabsf(wheelSteerAngle) > 0.001f)
+        glRotatef(wheelSteerAngle, 0.0f, 1.0f, 0.0f);
 
     glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
-    glRotatef(wheelAngle, 0.0f, 0.0f, 1.0f);
+    glRotatef(-wheelAngle, 0.0f, 0.0f, 1.0f);
 
     if (solidLightEnabled)
     {
@@ -262,25 +265,102 @@ static void drawWheel(float x, float y, float z, int frontWheel)
 }
 
 /*
- * Yol: gri kenar cizgileri + sari kesik orta cizgi.
+ * Acik duzlem: yol cizgisi yok, sadece genis zemin, ısikli grid ve ufuk siluetleri var.
  */
 static void drawRoad(void)
 {
     glDisable(GL_LIGHTING);
-    glColor3f(0.45f, 0.45f, 0.45f);
-    glBegin(GL_LINES);
-    glVertex3f(-2.5f, -0.52f, -20.0f); glVertex3f(-2.5f, -0.52f, 20.0f);
-    glVertex3f(2.5f, -0.52f, -20.0f);  glVertex3f(2.5f, -0.52f, 20.0f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_LINE_SMOOTH);
+
+    /* Ana zemin: koyu, genis ve bos bir duzlem. */
+    glColor3f(0.05f, 0.06f, 0.08f);
+    glBegin(GL_QUADS);
+    glVertex3f(-34.0f, -0.54f, -140.0f);
+    glVertex3f(34.0f, -0.54f, -140.0f);
+    glVertex3f(34.0f, -0.54f, 140.0f);
+    glVertex3f(-34.0f, -0.54f, 140.0f);
     glEnd();
 
-    glColor3f(1.0f, 0.15f, 0.12f);
+    /* Hafif grid: parlak ama yol cizgisi gibi olmayan bir referans yuzeyi. */
+    glColor4f(0.10f, 0.78f, 1.0f, 0.10f);
+    glLineWidth(2.2f);
     glBegin(GL_LINES);
-    for (float z = -10.0f - roadOffset; z < 10.0f; z += ROAD_LOOP)
+    for (float x = -32.0f; x <= 32.0f; x += 2.0f)
     {
-        glVertex3f(0.0f, -0.53f, z);
-        glVertex3f(0.0f, -0.53f, z + 0.38f);
+        glVertex3f(x, -0.529f, -140.0f);
+        glVertex3f(x, -0.529f, 140.0f);
+    }
+    for (float z = -140.0f; z <= 140.0f; z += 3.5f)
+    {
+        glVertex3f(-34.0f, -0.529f, z);
+        glVertex3f(34.0f, -0.529f, z);
     }
     glEnd();
+
+    glColor4f(0.55f, 0.95f, 1.0f, 0.30f);
+    glLineWidth(1.0f);
+    glBegin(GL_LINES);
+    for (float x = -32.0f; x <= 32.0f; x += 4.0f)
+    {
+        glVertex3f(x, -0.529f, -140.0f);
+        glVertex3f(x, -0.529f, 140.0f);
+    }
+    for (float z = -140.0f; z <= 140.0f; z += 8.0f)
+    {
+        glVertex3f(-34.0f, -0.529f, z);
+        glVertex3f(34.0f, -0.529f, z);
+    }
+    glEnd();
+
+    /* Kenar referanslari: yol hissi vermeden derinlik katar. */
+    glColor4f(0.35f, 0.80f, 0.95f, 0.36f);
+    glLineWidth(2.0f);
+    glBegin(GL_LINES);
+    for (float z = -126.0f; z <= 126.0f; z += 12.0f)
+    {
+        glVertex3f(-27.0f, -0.53f, z);
+        glVertex3f(-27.0f, -0.08f, z);
+        glVertex3f(27.0f, -0.53f, z);
+        glVertex3f(27.0f, -0.08f, z);
+    }
+    glEnd();
+
+    /* Ufuk siluetleri: bloklar ve hafif tepe formu. */
+    glColor3f(0.10f, 0.12f, 0.15f);
+    for (float x = -30.0f; x <= 30.0f; x += 6.0f)
+    {
+        float peak = 1.1f + fabsf(sinf(x * 0.17f)) * 2.4f;
+        glPushMatrix();
+        glTranslatef(x, -0.54f + peak * 0.5f, -132.0f);
+        glScalef(2.2f, peak, 3.0f);
+        glutSolidCube(1.0);
+        glPopMatrix();
+
+        glPushMatrix();
+        glTranslatef(x, -0.54f + (peak * 0.65f), 132.0f);
+        glScalef(2.2f, peak * 0.8f, 3.0f);
+        glutSolidCube(1.0);
+        glPopMatrix();
+    }
+
+    glColor3f(0.85f, 0.92f, 1.0f);
+    glPointSize(2.0f);
+    glBegin(GL_POINTS);
+    for (int i = 0; i < 80; ++i)
+    {
+        float sx = -33.0f + (float)(i % 16) * 4.0f;
+        float sy = 10.0f + (float)(i % 5) * 1.8f;
+        float sz = -120.0f + (float)(i / 16) * 60.0f;
+        glVertex3f(sx, sy, sz);
+    }
+    glEnd();
+
+    glLineWidth(1.0f);
+    glPointSize(1.0f);
+    glDisable(GL_LINE_SMOOTH);
+    glDisable(GL_BLEND);
     if (solidLightEnabled)
         glEnable(GL_LIGHTING);
 }
@@ -521,6 +601,40 @@ static void drawBumpers(void)
 #define CENTER_Z      0.0f
 #define WHEEL_X       0.62f   /* Tekerlegin X mesafesi (merkeze gore) */
 
+/*
+ * Ackermann geometrisi: virajin icindeki on tekerlek dis tekerlekten daha
+ * fazla doner. Bu sayede iki teker ayni merkezin etrafinda yuvarlanir ve
+ * arac gorsel olarak yana surukleniyormus gibi durmaz.
+ */
+static float getFrontWheelSteer(float wheelX)
+{
+    float absSteer = fabsf(steerAngle);
+    float turnRadius;
+    float innerDenominator;
+    float innerAngle;
+    float outerAngle;
+    int isInnerWheel;
+
+    if (absSteer < 0.01f)
+        return 0.0f;
+
+    turnRadius = VEHICLE_WHEELBASE / tanf(absSteer * PI / 180.0f);
+    innerDenominator = turnRadius - VEHICLE_TRACK * 0.5f;
+    if (innerDenominator < 0.05f)
+        innerDenominator = 0.05f;
+
+    innerAngle = atanf(VEHICLE_WHEELBASE / innerDenominator) * 180.0f / PI;
+    outerAngle = atanf(VEHICLE_WHEELBASE /
+        (turnRadius + VEHICLE_TRACK * 0.5f)) * 180.0f / PI;
+
+    /* Pozitif direksiyon sola (+X), negatif direksiyon saga donustur. */
+    isInnerWheel = (steerAngle > 0.0f && wheelX > 0.0f) ||
+        (steerAngle < 0.0f && wheelX < 0.0f);
+
+    return (steerAngle > 0.0f ? 1.0f : -1.0f) *
+        (isInnerWheel ? innerAngle : outerAngle);
+}
+
 /* Tel kutu cercevesi — aks diferansiyel kutulari icin */
 static void drawWireBox(float cx, float cy, float cz, float hx, float hy, float hz)
 {
@@ -545,23 +659,26 @@ static void drawWireBox(float cx, float cy, float cz, float hx, float hy, float 
 }
 
 /* Disli sembolu (tel cark) */
-static void drawWireGear(float cx, float cy, float cz, float radius, int teeth)
+static void drawWireGear(float cx, float cy, float cz, float radius, int teeth, float phaseDeg)
 {
     float step = 2.0f * PI / (float)(teeth * 2);
+    float phase = phaseDeg * PI / 180.0f;
     int i;
 
     glBegin(GL_LINE_LOOP);
     for (i = 0; i < teeth * 2; i++)
     {
-        float ang = i * step;
+        float ang = i * step + phase;
         float r = (i % 2 == 0) ? radius : radius * 0.72f;
         glVertex3f(cx + r * cosf(ang), cy + r * sinf(ang), cz);
     }
     glEnd();
 
     glBegin(GL_LINES);
-    glVertex3f(cx - radius * 0.55f, cy, cz); glVertex3f(cx + radius * 0.55f, cy, cz);
-    glVertex3f(cx, cy - radius * 0.55f, cz); glVertex3f(cx, cy + radius * 0.55f, cz);
+    glVertex3f(cx + cosf(phase) * radius * 0.55f, cy + sinf(phase) * radius * 0.55f, cz);
+    glVertex3f(cx - cosf(phase) * radius * 0.55f, cy - sinf(phase) * radius * 0.55f, cz);
+    glVertex3f(cx + cosf(phase + PI * 0.5f) * radius * 0.55f, cy + sinf(phase + PI * 0.5f) * radius * 0.55f, cz);
+    glVertex3f(cx - cosf(phase + PI * 0.5f) * radius * 0.55f, cy - sinf(phase + PI * 0.5f) * radius * 0.55f, cz);
     glEnd();
 }
 
@@ -580,18 +697,26 @@ static void drawSelectable4x4(void)
 
     glDisable(GL_LIGHTING);
     glLineWidth(2.5f);
-    glColor3f(1.0f, 1.0f, 1.0f);
+    glColor3f(fourWheelDriveEnabled ? 0.15f : 0.45f,
+        fourWheelDriveEnabled ? 0.95f : 0.45f,
+        fourWheelDriveEnabled ? 1.0f : 0.45f);
 
     /* On aks + saft + teker hub cizgileri */
     glBegin(GL_LINES);
     glVertex3f(-WHEEL_X, AXLE_Y, FRONT_AXLE_Z); glVertex3f(WHEEL_X, AXLE_Y, FRONT_AXLE_Z);
-    glVertex3f(0.0f, AXLE_Y, FRONT_AXLE_Z);    glVertex3f(0.0f, CENTER_Y, 0.06f);
+    if (fourWheelDriveEnabled)
+    {
+        glVertex3f(0.0f, AXLE_Y, FRONT_AXLE_Z); glVertex3f(0.0f, CENTER_Y, 0.06f);
+    }
     glVertex3f(-WHEEL_X, AXLE_Y, FRONT_AXLE_Z); glVertex3f(-WHEEL_X, AXLE_Y + 0.05f, FRONT_AXLE_Z);
     glVertex3f(WHEEL_X, AXLE_Y, FRONT_AXLE_Z);  glVertex3f(WHEEL_X, AXLE_Y + 0.05f, FRONT_AXLE_Z);
     glEnd();
     drawWireBox(0.0f, AXLE_Y, FRONT_AXLE_Z, 0.045f, 0.03f, 0.035f);
+    drawWireGear(0.0f, AXLE_Y, FRONT_AXLE_Z + 0.036f, 0.040f, 7,
+        fourWheelDriveEnabled ? drivetrainAngle : 0.0f);
 
     /* Arka aks + saft + teker hub cizgileri */
+    glColor3f(1.0f, 0.68f, 0.12f);
     glBegin(GL_LINES);
     glVertex3f(-WHEEL_X, AXLE_Y, REAR_AXLE_Z); glVertex3f(WHEEL_X, AXLE_Y, REAR_AXLE_Z);
     glVertex3f(0.0f, AXLE_Y, REAR_AXLE_Z);     glVertex3f(0.0f, CENTER_Y, CENTER_Z);
@@ -599,11 +724,16 @@ static void drawSelectable4x4(void)
     glVertex3f(WHEEL_X, AXLE_Y, REAR_AXLE_Z);  glVertex3f(WHEEL_X, AXLE_Y + 0.05f, REAR_AXLE_Z);
     glEnd();
     drawWireBox(0.0f, AXLE_Y, REAR_AXLE_Z, 0.045f, 0.03f, 0.035f);
+    drawWireGear(0.0f, AXLE_Y, REAR_AXLE_Z + 0.036f, 0.040f, 7, drivetrainAngle);
 
-    /* Merkez baglanti (kucuk) */
-    drawWireGear(0.0f, CENTER_Y, CENTER_Z - 0.01f, 0.045f, 6);
+    /* Transfer kutusu: 4x4 acikken on ve arka aksa ayni anda guc dagitir. */
+    glColor3f(fourWheelDriveEnabled ? 0.20f : 1.0f,
+        fourWheelDriveEnabled ? 1.0f : 0.68f,
+        fourWheelDriveEnabled ? 0.35f : 0.12f);
+    drawWireGear(0.0f, CENTER_Y, CENTER_Z - 0.01f, 0.045f, 6, drivetrainAngle);
     drawWireBox(0.0f, CENTER_Y, CENTER_Z - 0.01f, 0.022f, 0.022f, 0.014f);
-    drawWireGear(0.0f, CENTER_Y, 0.06f, 0.035f, 6);
+    drawWireGear(0.0f, CENTER_Y, 0.06f, 0.035f, 6,
+        fourWheelDriveEnabled ? -drivetrainAngle : 0.0f);
 
     glBegin(GL_LINES);
     glVertex3f(0.0f, CENTER_Y, CENTER_Z - 0.01f); glVertex3f(0.0f, CENTER_Y, 0.06f);
@@ -627,7 +757,7 @@ static void drawSteeringSystem(void)
     glTranslatef(-0.20f, 0.22f, 0.22f);
     glRotatef(65.0f, 1.0f, 0.0f, 0.0f);
     /* Egik simidin gorunen donusu, tekerlek Y donusunun ters isaretidir. */
-    glRotatef(-steerAngle, 0.0f, 0.0f, 1.0f);
+    glRotatef(-steerAngle * 3.0f, 0.0f, 0.0f, 1.0f);
     if (solidLightEnabled)
     {
         setMaterial(0.85f, 0.80f, 0.10f, 0.55f, 0.55f, 0.20f, 35.0f, 1.0f);
@@ -673,33 +803,70 @@ static void drawCar(void)
     drawSelectable4x4();
     drawSteeringSystem();
 
-    drawWheel(WHEEL_X, AXLE_Y, FRONT_AXLE_Z, 1);
-    drawWheel(-WHEEL_X, AXLE_Y, FRONT_AXLE_Z, 1);
-    drawWheel(WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0);
-    drawWheel(-WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0);
+    drawWheel(WHEEL_X, AXLE_Y, FRONT_AXLE_Z, getFrontWheelSteer(WHEEL_X));
+    drawWheel(-WHEEL_X, AXLE_Y, FRONT_AXLE_Z, getFrontWheelSteer(-WHEEL_X));
+    drawWheel(WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0.0f);
+    drawWheel(-WHEEL_X, AXLE_Y, REAR_AXLE_Z, 0.0f);
 
     drawWindows();
 }
 
+/* Yol yerinde kalir; arabanin tamami Z ekseninde gercekten ilerler. */
+static void drawMovingCar(void)
+{
+    glPushMatrix();
+    glTranslatef(carTravelX, 0.0f, carTravelZ);
+    glRotatef(carHeading, 0.0f, 1.0f, 0.0f);
+    drawCar();
+    glPopMatrix();
+}
+
 static void applyCameraPreset(const CameraPreset* cam)
 {
-    gluLookAt(cam->eyeX, cam->eyeY, cam->eyeZ,
-        cam->centerX, cam->centerY, cam->centerZ,
+    /* Kamera aracla ayni dunya ofsetini tasir; chase kamera aracin yonune de uyar. */
+    if (cam == &mainCameras[6])
+    {
+        float rad = carHeading * PI / 180.0f;
+        float sinH = sinf(rad);
+        float cosH = cosf(rad);
+        float targetEyeX = cam->eyeX * cosH + cam->eyeZ * sinH + carTravelX;
+        float targetEyeZ = -cam->eyeX * sinH + cam->eyeZ * cosH + carTravelZ;
+        float targetCenterX = cam->centerX * cosH + cam->centerZ * sinH + carTravelX;
+        float targetCenterZ = -cam->centerX * sinH + cam->centerZ * cosH + carTravelZ;
+
+        if (!chaseCameraReady)
+        {
+            chaseEyeX = targetEyeX;
+            chaseEyeZ = targetEyeZ;
+            chaseCenterX = targetCenterX;
+            chaseCenterZ = targetCenterZ;
+            chaseCameraReady = 1;
+        }
+        else
+        {
+            chaseEyeX += (targetEyeX - chaseEyeX) * 0.12f;
+            chaseEyeZ += (targetEyeZ - chaseEyeZ) * 0.12f;
+            chaseCenterX += (targetCenterX - chaseCenterX) * 0.16f;
+            chaseCenterZ += (targetCenterZ - chaseCenterZ) * 0.16f;
+        }
+
+        gluLookAt(chaseEyeX, cam->eyeY, chaseEyeZ,
+            chaseCenterX, cam->centerY, chaseCenterZ,
+            cam->upX, cam->upY, cam->upZ);
+        return;
+    }
+
+    chaseCameraReady = 0;
+    gluLookAt(cam->eyeX + carTravelX, cam->eyeY, cam->eyeZ + carTravelZ,
+        cam->centerX + carTravelX, cam->centerY, cam->centerZ + carTravelZ,
         cam->upX, cam->upY, cam->upZ);
 }
 
 static void setCamera(void)
 {
     if (cameraMode < 0 || cameraMode >= MAIN_CAMERA_COUNT)
-        cameraMode = 0;
+        cameraMode = 6;
     applyCameraPreset(&mainCameras[cameraMode]);
-}
-
-static void setSubCamera(void)
-{
-    if (subCameraMode < 0 || subCameraMode >= SUB_CAMERA_COUNT)
-        subCameraMode = 0;
-    applyCameraPreset(&subCameras[subCameraMode]);
 }
 
 /* Kamera kurulduktan sonra iki yumusak studyo isigi ve iki far spotu ayarlanir. */
@@ -759,7 +926,7 @@ static void drawHelpPanel(void)
     const float panelWidth = 410.0f;
     const float boxTop = (float)mainWinH - padT;
     const float firstBase = boxTop - 13.0f;
-    const float lastBase = firstBase - 10.0f * lineStep;
+    const float lastBase = firstBase - 12.0f * lineStep;
     const float boxBottom = lastBase - padB;
     const float boxRight = padL + panelWidth;
     float y;
@@ -797,7 +964,9 @@ static void drawHelpPanel(void)
     y -= lineStep;
 
     glColor3f(0.82f, 0.86f, 0.92f);
-    drawBitmapText(textX, y, "Sol/Sag ok veya A/S .... Direksiyon");
+    drawBitmapText(textX, y, "W/S veya Yukari/Asagi .. Ileri/geri");
+    y -= lineStep;
+    drawBitmapText(textX, y, "A/D veya Sol/Sag ok .... Direksiyon");
     y -= lineStep;
     drawBitmapText(textX, y, "1 - 7 ................ Ana kamera");
     y -= lineStep;
@@ -809,7 +978,7 @@ static void drawHelpPanel(void)
     y -= lineStep;
     drawBitmapText(textX, y, "F .................... Farlari ac/kapa");
     y -= lineStep;
-    drawBitmapText(textX, y, "Q W E R T ............ Alt pencere kamera");
+    drawBitmapText(textX, y, "X .................... 4x4 modu ac/kapa");
     y -= lineStep;
     drawBitmapText(textX, y, "Sag tik .............. Kamera menusu");
     y -= lineStep;
@@ -819,6 +988,12 @@ static void drawHelpPanel(void)
     glColor3f(0.55f, 0.75f, 0.55f);
     drawBitmapText(textX, y, solidLightEnabled ? "Mod: Kaplama + isik ACIK" : "Mod: Tel (isik kapali)");
     y -= lineStep;
+    glColor3f(fourWheelDriveEnabled ? 0.20f : 1.0f,
+        fourWheelDriveEnabled ? 1.0f : 0.65f,
+        fourWheelDriveEnabled ? 0.35f : 0.20f);
+    drawBitmapText(textX, y, fourWheelDriveEnabled ? "CEKIS: 4x4 AKTIF (4 tekerden cekis)" : "CEKIS: 4x4 PASIF (arka cekis)");
+    y -= lineStep;
+    glColor3f(0.55f, 0.75f, 0.55f);
     snprintf(statusText, sizeof(statusText), "Boya: %s | Yuzey: %s | Far: %s",
         paintColors[paintColorIndex].name, finishNames[paintFinishIndex],
         headlightsEnabled ? "ACIK" : "KAPALI");
@@ -852,25 +1027,8 @@ void displayMain(void)
     setCamera();
     configureSceneLights();
     drawRoad();
-    drawCar();
+    drawMovingCar();
     drawHelpPanel();
-
-    glutSwapBuffers();
-}
-
-/* Alt pencere cizim callback'i — bagimsiz subCameraMode kullanir */
-void displaySub(void)
-{
-    glutSetWindow(subWindow);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    setSubCamera();
-    configureSceneLights();
-
-    drawRoad();
-    drawCar();
 
     glutSwapBuffers();
 }
@@ -934,33 +1092,43 @@ void createMenu(void)
 }
 
 /*
- * Direksiyon fizigi: A basili -> sola, S basili -> saga.
- * Tus birakilinca steerAngle yavasca sifira doner (±30 derece sinir).
- * steerAngle hem on tekerleklerde hem direksiyon simidinde kullanilir.
+ * Direksiyon fizigi: A sola, D saga. Hiz arttikca azami direksiyon acisi
+ * daralir; tus birakilinca tekerlekler yumusakca merkeze gelir.
  */
-static void updateSteering(void)
+static float moveTowards(float current, float target, float maxChange)
 {
-    if (keyLeft)
-    {
-        steerAngle += 2.0f;
-        if (steerAngle > MAX_STEER)
-            steerAngle = MAX_STEER;
-    }
-    else if (keyRight)
-    {
-        steerAngle -= 2.0f;
-        if (steerAngle < -MAX_STEER)
-            steerAngle = -MAX_STEER;
-    }
-    else
-    {
-        if (steerAngle > 0.0f)
-            steerAngle -= 1.5f;
-        if (steerAngle < 0.0f)
-            steerAngle += 1.5f;
-        if (fabsf(steerAngle) < 1.5f)
-            steerAngle = 0.0f;
-    }
+    if (current < target)
+        return (current + maxChange > target) ? target : current + maxChange;
+    if (current > target)
+        return (current - maxChange < target) ? target : current - maxChange;
+    return target;
+}
+
+static void updateSteering(float dt)
+{
+    float steerInput = 0.0f;
+    float speedRatio = fabsf(carSpeed) / MAX_FORWARD_SPEED;
+    float allowedSteer;
+    float targetSteer;
+    float steeringRate;
+
+    if (speedRatio > 1.0f)
+        speedRatio = 1.0f;
+
+    if (keyLeft && !keyRight)
+        steerInput = 1.0f;
+    else if (keyRight && !keyLeft)
+        steerInput = -1.0f;
+
+    allowedSteer = MAX_STEER - (MAX_STEER - HIGH_SPEED_STEER) * speedRatio;
+    targetSteer = steerInput * allowedSteer;
+
+    /* Surucu cevirirken kontrollu, biraktiginda biraz daha hizli merkezleme. */
+    steeringRate = (steerInput == 0.0f) ? 125.0f : 92.0f;
+    steerAngle = moveTowards(steerAngle, targetSteer, steeringRate * dt);
+
+    if (fabsf(steerAngle) < 0.03f)
+        steerAngle = 0.0f;
 }
 
 /*
@@ -974,8 +1142,12 @@ void keyDown(unsigned char key, int x, int y)
 
     if (key == 'a' || key == 'A')
         keyLeft = 1;
-    if (key == 's' || key == 'S')
+    if (key == 'd' || key == 'D')
         keyRight = 1;
+    if (key == 'w' || key == 'W')
+        keyForward = 1;
+    if (key == 's' || key == 'S')
+        keyBackward = 1;
 
     if (key >= '1' && key <= '7')
     {
@@ -1006,36 +1178,15 @@ void keyDown(unsigned char key, int x, int y)
         requestRedrawBoth();
     }
 
-    if (key == 'h' || key == 'H')
+    if (key == 'x' || key == 'X')
     {
-        showHelpPanel = !showHelpPanel;
+        fourWheelDriveEnabled = !fourWheelDriveEnabled;
         requestRedrawBoth();
     }
 
-    /* Alt pencere kameralari (ana pencereden bagimsiz) */
-    if (key == 'q' || key == 'Q')
+    if (key == 'h' || key == 'H')
     {
-        subCameraMode = 0;
-        requestRedrawBoth();
-    }
-    if (key == 'w' || key == 'W')
-    {
-        subCameraMode = 1;
-        requestRedrawBoth();
-    }
-    if (key == 'e' || key == 'E')
-    {
-        subCameraMode = 2;
-        requestRedrawBoth();
-    }
-    if (key == 'r' || key == 'R')
-    {
-        subCameraMode = 3;
-        requestRedrawBoth();
-    }
-    if (key == 't' || key == 'T')
-    {
-        subCameraMode = 4;
+        showHelpPanel = !showHelpPanel;
         requestRedrawBoth();
     }
 
@@ -1050,8 +1201,12 @@ void keyUp(unsigned char key, int x, int y)
 
     if (key == 'a' || key == 'A')
         keyLeft = 0;
-    if (key == 's' || key == 'S')
+    if (key == 'd' || key == 'D')
         keyRight = 0;
+    if (key == 'w' || key == 'W')
+        keyForward = 0;
+    if (key == 's' || key == 'S')
+        keyBackward = 0;
 }
 
 void specialKeyDown(int key, int x, int y)
@@ -1063,6 +1218,10 @@ void specialKeyDown(int key, int x, int y)
         keyLeft = 1;
     if (key == GLUT_KEY_RIGHT)
         keyRight = 1;
+    if (key == GLUT_KEY_UP)
+        keyForward = 1;
+    if (key == GLUT_KEY_DOWN)
+        keyBackward = 1;
 }
 
 void specialKeyUp(int key, int x, int y)
@@ -1074,6 +1233,10 @@ void specialKeyUp(int key, int x, int y)
         keyLeft = 0;
     if (key == GLUT_KEY_RIGHT)
         keyRight = 0;
+    if (key == GLUT_KEY_UP)
+        keyForward = 0;
+    if (key == GLUT_KEY_DOWN)
+        keyBackward = 0;
 }
 
 /*
@@ -1082,47 +1245,101 @@ void specialKeyUp(int key, int x, int y)
  */
 void timer(int value)
 {
+    int nowMs = glutGet(GLUT_ELAPSED_TIME);
+    float dt;
+    float movement;
+    float acceleration;
+    float headingChange;
+    float middleHeadingRad;
+    float nextX;
+    float nextZ;
+    int hitBoundary = 0;
     (void)value;
 
-    updateSteering();
+    if (lastTimerMs == 0)
+        dt = 0.016f;
+    else
+        dt = (nowMs - lastTimerMs) / 1000.0f;
+    lastTimerMs = nowMs;
 
-    wheelAngle += 3.0f;
-    if (wheelAngle > 360.0f)
-        wheelAngle -= 360.0f;
+    /* Pencere tasinirken veya debugger dururken fizik bir anda sicrama yapmasin. */
+    if (dt < 0.001f) dt = 0.001f;
+    if (dt > 0.050f) dt = 0.050f;
 
-    roadOffset += 0.02f;
-    if (roadOffset > ROAD_LOOP)
-        roadOffset = 0.0f;
+    updateSteering(dt);
+
+    acceleration = fourWheelDriveEnabled ? 1.90f : 1.65f;
+
+    if (keyForward && !keyBackward)
+    {
+        if (carSpeed < -0.02f)
+            carSpeed = moveTowards(carSpeed, 0.0f, 3.80f * dt);
+        else
+            carSpeed = moveTowards(carSpeed, MAX_FORWARD_SPEED, acceleration * dt);
+    }
+    else if (keyBackward && !keyForward)
+    {
+        if (carSpeed > 0.02f)
+            carSpeed = moveTowards(carSpeed, 0.0f, 3.80f * dt);
+        else
+            carSpeed = moveTowards(carSpeed, -MAX_REVERSE_SPEED, 1.35f * dt);
+    }
+    else
+    {
+        /* Gaz birakilinca arac aniden durmaz; yuvarlanma direnciyle yavaslar. */
+        carSpeed = moveTowards(carSpeed, 0.0f, 0.82f * dt);
+    }
+
+    if (fabsf(carSpeed) < 0.002f)
+        carSpeed = 0.0f;
+
+    movement = carSpeed * dt;
+
+    if (fabsf(movement) > 0.000001f)
+    {
+        /* Kinematik bisiklet modeli: yon degisimi hiz, dingil mesafesi ve
+           gercek on teker acisindan hesaplanir. Geri giderken yon dogal terslenir. */
+        headingChange = (movement / VEHICLE_WHEELBASE) *
+            tanf(steerAngle * PI / 180.0f) * 180.0f / PI;
+        middleHeadingRad = (carHeading + headingChange * 0.5f) * PI / 180.0f;
+        nextX = carTravelX + sinf(middleHeadingRad) * movement;
+        nextZ = carTravelZ + cosf(middleHeadingRad) * movement;
+
+        carHeading += headingChange;
+        while (carHeading > 180.0f) carHeading -= 360.0f;
+        while (carHeading < -180.0f) carHeading += 360.0f;
+
+        if (nextZ > 105.0f) { nextZ = 105.0f; hitBoundary = 1; }
+        if (nextZ < -105.0f) { nextZ = -105.0f; hitBoundary = 1; }
+        if (nextX > 20.0f) { nextX = 20.0f; hitBoundary = 1; }
+        if (nextX < -20.0f) { nextX = -20.0f; hitBoundary = 1; }
+
+        carTravelX = nextX;
+        carTravelZ = nextZ;
+        if (hitBoundary)
+            carSpeed = 0.0f;
+
+        wheelAngle += movement * (360.0f / (2.0f * PI * 0.16f));
+        drivetrainAngle += movement * (fourWheelDriveEnabled ? 200.0f : 145.0f);
+        if (wheelAngle > 360.0f) wheelAngle -= 360.0f;
+        if (wheelAngle < -360.0f) wheelAngle += 360.0f;
+        if (drivetrainAngle > 360.0f) drivetrainAngle -= 360.0f;
+        if (drivetrainAngle < -360.0f) drivetrainAngle += 360.0f;
+    }
 
     requestRedrawBoth();
     glutTimerFunc(16, timer, 0);
 }
 
-/* Ana pencere boyutu degisince viewport + alt pencere konumu ayarlanir */
+/* Ana surus penceresinin viewport ve perspektif ayari. */
 void reshapeMain(int w, int h)
 {
     if (h == 0)
         h = 1;
 
-    glutSetWindow(subWindow);
-    glutPositionWindow(w - 260, 10);
-    glutReshapeWindow(240, 180);
-
-    glutSetWindow(mainWindow);
     glViewport(0, 0, w, h);
     mainWinW = w;
     mainWinH = h;
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(45.0, (double)w / h, 1.0, 100.0);
-}
-
-void reshapeSub(int w, int h)
-{
-    if (h == 0)
-        h = 1;
-
-    glViewport(0, 0, w, h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     gluPerspective(45.0, (double)w / h, 1.0, 100.0);
@@ -1157,14 +1374,14 @@ void initShared(void)
         solidQuadric = gluNewQuadric();
 }
 
-/* Program girisi: ana + alt pencere, menu, timer, klavye callback'leri */
+/* Program girisi: tek genis surus penceresi, menu, timer ve klavye. */
 int main(int argc, char** argv)
 {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(950, 700);
 
-    mainWindow = glutCreateWindow("WireCar 1.1 [C renk | V kaplama | F far | H panel]");
+    mainWindow = glutCreateWindow("4x4WireCar [X 4x4 | C renk | V kaplama | F far | H panel]");
     initShared();
     glutDisplayFunc(displayMain);
     glutReshapeFunc(reshapeMain);
@@ -1173,15 +1390,6 @@ int main(int argc, char** argv)
     glutSpecialFunc(specialKeyDown);
     glutSpecialUpFunc(specialKeyUp);
     createMenu();
-
-    subWindow = glutCreateSubWindow(mainWindow, 680, 10, 240, 180);
-    initShared();
-    glutDisplayFunc(displaySub);
-    glutReshapeFunc(reshapeSub);
-    glutKeyboardFunc(keyDown);
-    glutKeyboardUpFunc(keyUp);
-    glutSpecialFunc(specialKeyDown);
-    glutSpecialUpFunc(specialKeyUp);
 
     glutTimerFunc(16, timer, 0);
     glutMainLoop();

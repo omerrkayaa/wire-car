@@ -1,8 +1,16 @@
-# WireCar 1.1 (Tel Araba)
+# 4x4 WireCar (Tel Araba 2.0)
 
-An animated **wireframe car** built with OpenGL and GLUT. The body, wheels, axles, steering and driveshaft use the required wire geometry; solid shading, lighting and a second preview window are added as extras. Version 1.1 adds body colours, paint finishes and headlights.
+A drivable **wireframe car** built with OpenGL and GLUT. The body, wheels, axles, steering and driveshaft use the required wire geometry; solid shading, paint colours, lighting and headlights are added as extras. You can drive the car around a grid ground plane and switch between four-wheel and rear-wheel drive.
 
-Project report: [RAPOR.md](RAPOR.md). Screenshots: [figures/](figures/) (`fig01`–`fig16`).
+Project report: [RAPOR.md](RAPOR.md). Screenshots: [figures/](figures/) (`fig01`–`fig10`).
+
+## Versions
+
+| Tag | Description |
+|-----|-------------|
+| [`v1.0`](../../tree/v1.0) | Animated wire car with a second preview window |
+| [`v1.1`](../../tree/v1.1) | Body colours, paint finishes, studio lighting, headlights |
+| [`v2.0-4x4`](../../tree/v2.0-4x4) | Driving model, Ackermann steering, switchable 4×4 (this version) |
 
 ## Requirements
 
@@ -34,9 +42,11 @@ Clean: `make clean`
 
 | Key | Action |
 |-----|--------|
-| **A** / **S** or **←** / **→** | Steer front wheels left / right |
-| **1** – **7** | Main window camera preset |
-| **Q**, **W**, **E**, **R**, **T** | Sub-window (top-right) camera preset |
+| **W** / **↑** | Accelerate / brake when reversing |
+| **S** / **↓** | Brake / reverse |
+| **A** / **D** or **←** / **→** | Steer left / right |
+| **1** – **7** | Camera preset (7 = follow camera, default) |
+| **X** | 4×4 on / off |
 | **L** or **9** | Toggle solid coating + lighting ↔ wire only |
 | **C** | Next body colour |
 | **V** | Next paint finish (gloss, matte, metallic) |
@@ -56,37 +66,19 @@ wire-car/
 ├── Makefile           # Linux / macOS / Windows (MinGW) build
 ├── RAPOR.md           # Project report
 ├── README.md          # This file
-└── figures/           # Report figures (fig01–fig16)
+└── figures/           # Screenshots of version 2.0 (fig01–fig10)
 ```
 
-## Features
+## What's new in 2.0
 
-**Required**
-
-- `glutWireCube` — body  
-- `glutWireTorus` — wheels and steering wheel  
-- Wire lines — axles, driveshaft, steering column and rack  
-
-**Extras**
-
-- `glutSolidCube` / `glutSolidTorus` hybrid coating  
-- Key and fill lights (`GL_LIGHT0`, `GL_LIGHT1`) and material properties  
-- Two headlight spotlights (`GL_LIGHT2`, `GL_LIGHT3`)  
-- Semi-transparent windows  
-- Second GLUT sub-window (independent camera)  
-- Wheel spin, scrolling road lines, steering animation (~60 FPS)
-
-## What's new in 1.1
-
-- 6 body colours (olive green, racing red, night blue, pearl white, carbon black, copper orange)
-- Gloss, matte and metallic paint finishes
-- One paint material shared by the body, roof, hood and bumpers
-- Studio lighting: warm key light and cool fill light
-- Two OpenGL spotlight headlights that can be switched on and off
-- Right-click menu with submenus for camera, colour and finish
-- Help panel shows the selected colour, finish and headlight state
-
-The screenshots in `figures/` were taken with version 1.0.
+- The car actually moves: time-based acceleration, braking, reversing and rolling resistance
+- Steering limit drops from 30° to 12° as speed increases
+- Ackermann steering: inner and outer front wheels turn by different angles
+- Turning follows a kinematic bicycle model
+- 4×4 mode (**X**): front driveshaft and gears turn only in 4×4; drivetrain colours change
+- Large grid ground plane instead of the lane road
+- Cameras follow the car; smooth follow camera is the default
+- Single window (the preview sub-window from 1.x was removed)
 
 ## License
 
